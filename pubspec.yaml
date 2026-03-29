@@ -1,0 +1,75 @@
+name: memory_notes
+description: 'Memory Notes - Note and Task Organizer'
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.4.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State Management
+  signals: ^5.5.0
+
+  # Navigation
+  auto_route: ^9.3.0+1
+
+  # UI
+  auto_size_text: ^3.0.0
+  cupertino_icons: ^1.0.8
+
+  # Data Models
+  freezed_annotation: ^3.0.0
+  json_annotation: ^4.9.0
+
+  # Logging
+  lumberdash: ^3.0.0
+  colorize_lumberdash: ^3.0.0
+
+  # Auth & Data (Supabase via supa_manager)
+  supa_manager:
+    path: ../supa_manager
+  utilities:
+    path: ../utilities
+
+  # Misc
+  package_info_plus: ^8.3.0
+  connectivity_plus: ^6.1.4
+  intl: ^0.20.2
+  flutter_expandable_fab: ^2.5.2
+  speech_to_text: ^7.3.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  build_runner: ^2.4.15
+  freezed: ^3.0.3
+  json_serializable: ^6.9.4
+  auto_route_generator: ^9.3.1
+  flutter_launcher_icons: ^0.14.3
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/secrets.json
+    - assets/logging.json
+    - assets/images/app_icon.jpg
+
+flutter_launcher_icons:
+  image_path: "assets/images/app_icon.jpg"
+  android: true
+  ios: true
+  web:
+    generate: true
+    image_path: "assets/images/app_icon.jpg"
+    background_color: "#0175C2"
+    theme_color: "#0175C2"
+  adaptive_icon_background: "#000000"
+  adaptive_icon_foreground_inset: 32
+  adaptive_icon_foreground: "assets/images/app_icon.jpg"
+  remove_alpha_ios: true
