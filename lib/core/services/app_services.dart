@@ -1,5 +1,6 @@
 import 'package:memory_notes/features/notes/application/category_controller.dart';
 import 'package:memory_notes/features/notes/application/notes_query_service.dart';
+import 'package:memory_notes/features/notes/application/notes_merge_service.dart';
 import 'package:memory_notes/features/notes/application/notes_sync_service.dart';
 import 'package:memory_notes/features/notes/application/notes_duplication_service.dart';
 import 'package:supa_manager/supa_manager.dart';
@@ -24,6 +25,7 @@ class AppServices {
   late final NotesQueryService notesQuery;
   late final NotesSyncService notesSync;
   late final NotesDuplicationService notesDuplication;
+  late final NotesMergeService notesMerge;
   late final NotesWorkspaceStore notesWorkspace;
   late final NotesMobileStore notesMobile;
   late final SearchStore search;
@@ -31,7 +33,7 @@ class AppServices {
   late final NotesListActions notesListActions;
   late final NoteDetailActions noteDetailActions;
   late final NoteEditActions noteEditActions;
-  late final CurrentStateRepository currentState;
+  late final DeviceWorkspaceStateRepository deviceWorkspaceState;
   late final TodoFileController todoFiles;
   late final CategoryController categories;
   late final TodoController todos;
@@ -42,7 +44,9 @@ class AppServices {
     workspace = NotesWorkspaceController();
     notesQuery = const NotesQueryService();
     speech = SpeechController();
-    currentState = CurrentStateRepository(db);
+    deviceWorkspaceState = DeviceWorkspaceStateRepository(
+      currentUserId: () => auth.userId,
+    );
     todoFiles = TodoFileController(TodoFileRepository(db));
     categories = CategoryController(
       CategoryRepository(db),
@@ -59,9 +63,15 @@ class AppServices {
       todos: todos,
       query: notesQuery,
     );
+    notesMerge = NotesMergeService(
+      todoFiles: todoFiles,
+      categories: categories,
+      todos: todos,
+      query: notesQuery,
+    );
     notesWorkspace = NotesWorkspaceStore(
       workspace: workspace,
-      currentState: currentState,
+      deviceWorkspaceState: deviceWorkspaceState,
       query: notesQuery,
       todoFiles: todoFiles,
       categories: categories,
@@ -91,11 +101,14 @@ class AppServices {
     notesListActions = NotesListActions(
       notesWorkspace: notesWorkspace,
       duplication: notesDuplication,
+      merge: notesMerge,
     );
     noteDetailActions = NoteDetailActions(
       todoFiles: todoFiles,
       notesMobile: notesMobile,
+      notesWorkspace: notesWorkspace,
       duplication: notesDuplication,
+      merge: notesMerge,
     );
     noteEditActions = NoteEditActions(
       notesMobile: notesMobile,
@@ -110,16 +123,8 @@ class AppServices {
   /// Loads all files, then warms categories and todos for search/navigation.
   Future<void> preloadAllData() async {
     await todoFiles.load();
-    final allFileIds = todoFiles.todoFiles.value
-        .where((file) => file.id != null)
-        .map((file) => file.id!)
-        .toList();
-    final savedFileIds = await currentState.getCurrentFileIds();
-    final restoredFileIds = savedFileIds.where(allFileIds.contains).toList();
-    workspace.setOpenFileIds(restoredFileIds);
-    if (restoredFileIds.isNotEmpty) {
-      workspace.selectFile(restoredFileIds.first);
-    }
+    final allFileIds =
+        todoFiles.todoFiles.value.where((file) => file.id != null).map((file) => file.id!).toList();
     await categories.loadAllForSearch(allFileIds);
     await Future.wait(
       categories.categories.value

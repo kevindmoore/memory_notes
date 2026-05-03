@@ -13,6 +13,7 @@ class SearchTabPage extends StatelessWidget {
     return SearchScreen(
       search: services.search,
       notesMobile: services.notesMobile,
+      notesWorkspace: services.notesWorkspace,
       noteDetailActions: services.noteDetailActions,
       noteEditActions: services.noteEditActions,
       speech: services.speech,

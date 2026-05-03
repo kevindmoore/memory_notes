@@ -26,7 +26,13 @@ class NotesDuplicationService {
 
     await _ensureFileLoaded(fileId);
 
-    final duplicatedFile = await todoFiles.create(name ?? '${file.name} (Copy)');
+    final targetName = name ?? '${file.name} (Copy)';
+    final existing = todoFiles.findByName(targetName);
+    if (existing != null) {
+      return existing;
+    }
+
+    final duplicatedFile = await todoFiles.create(targetName);
     final duplicatedFileId = duplicatedFile?.id;
     if (duplicatedFile == null || duplicatedFileId == null) {
       return duplicatedFile;

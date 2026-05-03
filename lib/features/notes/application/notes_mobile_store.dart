@@ -33,6 +33,10 @@ class NotesMobileStore {
   }
 
   Future<void> renameList(TodoFile file, String name) {
+    final duplicate = todoFiles.findByName(name, excludingId: file.id);
+    if (duplicate != null) {
+      return Future.value();
+    }
     return todoFiles.update(
       file.copyWith(name: name, lastUpdated: DateTime.now()),
     );
@@ -42,7 +46,12 @@ class NotesMobileStore {
     TodoFile file, {
     String? name,
   }) {
-    return todoFiles.create(name ?? '${file.name} (Copy)');
+    final targetName = name ?? '${file.name} (Copy)';
+    final duplicate = todoFiles.findByName(targetName);
+    if (duplicate != null) {
+      return Future.value(duplicate);
+    }
+    return todoFiles.create(targetName);
   }
 
   Future<void> deleteList(int fileId) {

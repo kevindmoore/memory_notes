@@ -1,8 +1,11 @@
 import 'package:auto_route/auto_route.dart';
+import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:memory_notes/app/router/app_router.dart';
 import 'package:memory_notes/core/theme/app_theme.dart';
 import 'package:memory_notes/features/notes/application/notes_mobile_store.dart';
+import 'package:memory_notes/features/notes/application/notes_workspace_store.dart';
+import 'package:memory_notes/features/notes/data/models.dart';
 import 'package:memory_notes/features/notes/presentation/actions/notes_actions.dart';
 import 'package:memory_notes/features/search/application/search_store.dart';
 import 'package:memory_notes/features/search/models/search_result_item.dart';
@@ -15,6 +18,7 @@ class SearchScreen extends StatefulWidget {
   const SearchScreen({
     required this.search,
     required this.notesMobile,
+    required this.notesWorkspace,
     required this.noteDetailActions,
     required this.noteEditActions,
     required this.speech,
@@ -22,6 +26,7 @@ class SearchScreen extends StatefulWidget {
   });
   final SearchStore search;
   final NotesMobileStore notesMobile;
+  final NotesWorkspaceStore notesWorkspace;
   final NoteDetailActions noteDetailActions;
   final NoteEditActions noteEditActions;
   final SpeechController speech;
@@ -178,7 +183,8 @@ class _SearchScreenState extends State<SearchScreen> {
               return ListView.builder(
                 padding: const EdgeInsets.only(top: 8, bottom: 32),
                 itemCount: results.length,
-                itemBuilder: (context, i) => _buildResultTile(context, results[i]),
+                itemBuilder: (context, resultIndex) =>
+                    _buildResultTile(context, results[resultIndex]),
               );
             }),
           ),
@@ -189,7 +195,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Widget _buildResultTile(BuildContext context, SearchResultItem result) {
     return switch (result) {
-      SearchFileResultItem(file: final f) => ListTile(
+      SearchFileResultItem(file: final file) => ListTile(
           leading: Container(
             width: 36,
             height: 36,
@@ -199,20 +205,16 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
             child: const Icon(Icons.folder_rounded, color: AppColors.accent, size: 20),
           ),
-          title: _HighlightedText(text: f.name, query: _query.value),
+          title: _HighlightedText(text: file.name, query: _query.value),
           subtitle:
               const Text('List', style: TextStyle(color: AppColors.textDisabled, fontSize: 12)),
-          onTap: () => context.pushRoute(
-            NoteDetailRoute(
-              fileId: f.id!,
-              notesMobile: widget.notesMobile,
-              noteDetailActions: widget.noteDetailActions,
-              noteEditActions: widget.noteEditActions,
-              speech: widget.speech,
-            ),
-          ),
+          onTap: () => _openFileResult(context, file),
         ),
-      SearchCategoryResultItem(category: final c, parentFile: final f, subtitle: final subtitle) =>
+      SearchCategoryResultItem(
+        category: final category,
+        parentFile: final file,
+        subtitle: final subtitle,
+      ) =>
         ListTile(
           leading: Container(
             width: 36,
@@ -223,23 +225,16 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
             child: const Icon(Icons.folder_open_rounded, color: AppColors.accent, size: 20),
           ),
-          title: _HighlightedText(text: c.name, query: _query.value),
+          title: _HighlightedText(text: category.name, query: _query.value),
           subtitle: Text(subtitle,
               style: const TextStyle(color: AppColors.textDisabled, fontSize: 12)),
-          onTap: () => context.pushRoute(
-            NoteEditRoute(
-              fileId: f.id!,
-              categoryId: c.id!,
-              notesMobile: widget.notesMobile,
-              noteEditActions: widget.noteEditActions,
-              speech: widget.speech,
-            ),
-          ),
+          onTap: () => _openCategoryResult(context, file: file, category: category),
         ),
       SearchTodoResultItem(
-        todo: final t,
-        parentCategory: final c,
-        parentFile: final f,
+        todo: final todo,
+        ancestorTodoIds: final ancestorTodoIds,
+        parentCategory: final category,
+        parentFile: final file,
         subtitle: final subtitle,
       ) =>
         ListTile(
@@ -252,77 +247,254 @@ class _SearchScreenState extends State<SearchScreen> {
               border: Border.all(color: AppColors.cardBorder),
             ),
             child: Icon(
-              t.done ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
-              color: t.done ? AppColors.accent : AppColors.textDisabled,
+              todo.done ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+              color: todo.done ? AppColors.accent : AppColors.textDisabled,
               size: 20,
             ),
           ),
-          title: _HighlightedText(text: t.name, query: _query.value),
-          subtitle: Text(
-            subtitle,
-            style: const TextStyle(color: AppColors.textDisabled, fontSize: 12),
-          ),
-          onTap: () => context.pushRoute(
-            NoteEditRoute(
-              fileId: f.id!,
-              categoryId: c.id!,
-              parentTodoId: t.parentTodoId,
-              focusedTodoId: t.id,
-              openFocusedTodoNotes: true,
-              notesMobile: widget.notesMobile,
-              noteEditActions: widget.noteEditActions,
-              speech: widget.speech,
-            ),
+          title: _HighlightedText(text: todo.name, query: _query.value),
+          subtitle: _buildTodoSubtitle(subtitle, _query.value),
+          onTap: () => _openTodoResult(
+            context,
+            file: file,
+            category: category,
+            todo: todo,
+            ancestorTodoIds: ancestorTodoIds,
           ),
         ),
     };
   }
+
+  Future<void> _openFileResult(BuildContext context, TodoFile file) async {
+    final fileId = file.id;
+    if (fileId == null) return;
+    FocusManager.instance.primaryFocus?.unfocus();
+    if (_usesWorkspaceSelection(context)) {
+      await widget.notesWorkspace.openFile(file);
+      if (!context.mounted) return;
+      AutoTabsRouter.of(context).setActiveIndex(0);
+      return;
+    }
+    context.router.push(_buildNoteDetailRoute(fileId));
+  }
+
+  Future<void> _openCategoryResult(
+    BuildContext context, {
+    required TodoFile file,
+    required Category category,
+  }) async {
+    final fileId = file.id;
+    final categoryId = category.id;
+    if (fileId == null || categoryId == null) return;
+    FocusManager.instance.primaryFocus?.unfocus();
+    if (_usesWorkspaceSelection(context)) {
+      await widget.notesWorkspace.openFile(file);
+      await widget.notesWorkspace.selectCategory(file: file, category: category);
+      if (!context.mounted) return;
+      AutoTabsRouter.of(context).setActiveIndex(0);
+      return;
+    }
+    context.router.pushAll([
+      _buildNoteDetailRoute(fileId),
+      _buildNoteEditRoute(fileId: fileId, categoryId: categoryId),
+    ]);
+  }
+
+  Future<void> _openTodoResult(
+    BuildContext context, {
+    required TodoFile file,
+    required Category category,
+    required Todo todo,
+    required List<int> ancestorTodoIds,
+  }) async {
+    final fileId = file.id;
+    final categoryId = category.id;
+    final todoId = todo.id;
+    if (fileId == null || categoryId == null || todoId == null) return;
+    FocusManager.instance.primaryFocus?.unfocus();
+    final todoPath = <int>[...ancestorTodoIds, todoId];
+    if (_usesWorkspaceSelection(context)) {
+      await widget.notesWorkspace.openFile(file);
+      widget.notesWorkspace.selectTodo(
+        fileId: fileId,
+        categoryId: categoryId,
+        todoPath: todoPath,
+      );
+      if (!context.mounted) return;
+      AutoTabsRouter.of(context).setActiveIndex(0);
+      return;
+    }
+    final routes = <PageRouteInfo>[
+      _buildNoteDetailRoute(fileId),
+      _buildNoteEditRoute(fileId: fileId, categoryId: categoryId),
+    ];
+    for (final ancestorTodoId in ancestorTodoIds) {
+      routes.add(
+        _buildNoteEditRoute(
+          fileId: fileId,
+          categoryId: categoryId,
+          parentTodoId: ancestorTodoId,
+          focusedTodoId: ancestorTodoId,
+        ),
+      );
+    }
+    routes.add(
+      _buildNoteEditRoute(
+        fileId: fileId,
+        categoryId: categoryId,
+        parentTodoId: todo.parentTodoId,
+        focusedTodoId: todoId,
+        openFocusedTodoNotes: true,
+      ),
+    );
+    context.router.pushAll(routes);
+  }
+
+  NoteDetailRoute _buildNoteDetailRoute(int fileId) {
+    return NoteDetailRoute(
+      fileId: fileId,
+      notesMobile: widget.notesMobile,
+      noteDetailActions: widget.noteDetailActions,
+      noteEditActions: widget.noteEditActions,
+      speech: widget.speech,
+    );
+  }
+
+  NoteEditRoute _buildNoteEditRoute({
+    required int fileId,
+    required int categoryId,
+    int? parentTodoId,
+    int? focusedTodoId,
+    bool openFocusedTodoNotes = false,
+  }) {
+    return NoteEditRoute(
+      fileId: fileId,
+      categoryId: categoryId,
+      parentTodoId: parentTodoId,
+      focusedTodoId: focusedTodoId,
+      openFocusedTodoNotes: openFocusedTodoNotes,
+      notesMobile: widget.notesMobile,
+      noteEditActions: widget.noteEditActions,
+      speech: widget.speech,
+    );
+  }
+
+  bool _usesWorkspaceSelection(BuildContext context) {
+    final width = MediaQuery.sizeOf(context).width;
+    if (kIsWeb) {
+      return width >= 700;
+    }
+
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.macOS:
+      case TargetPlatform.windows:
+      case TargetPlatform.linux:
+        return true;
+      case TargetPlatform.android:
+      case TargetPlatform.iOS:
+      case TargetPlatform.fuchsia:
+        return width >= 700;
+    }
+  }
+
+  Widget _buildTodoSubtitle(String subtitle, String query) {
+    final newline = subtitle.indexOf('\n');
+    if (newline == -1) {
+      return Text(subtitle, style: const TextStyle(color: AppColors.textDisabled, fontSize: 12));
+    }
+    final breadcrumb = subtitle.substring(0, newline);
+    final snippet = subtitle.substring(newline + 1);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(breadcrumb, style: const TextStyle(color: AppColors.textDisabled, fontSize: 12)),
+        const SizedBox(height: 2),
+        _HighlightedText(
+          text: snippet,
+          query: query,
+          baseStyle: const TextStyle(
+            color: AppColors.textSecondary,
+            fontSize: 12,
+            fontStyle: FontStyle.italic,
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
-// Highlights the matching portion of text in accent color
+// Highlights every occurrence of every query word in accent color.
 // ---------------------------------------------------------------------------
 
 class _HighlightedText extends StatelessWidget {
   final String text;
   final String query;
+  final TextStyle baseStyle;
 
-  const _HighlightedText({required this.text, required this.query});
+  const _HighlightedText({
+    required this.text,
+    required this.query,
+    this.baseStyle = const TextStyle(color: AppColors.textPrimary),
+  });
 
   @override
   Widget build(BuildContext context) {
-    if (query.isEmpty) {
-      return Text(text, style: const TextStyle(color: AppColors.textPrimary));
-    }
+    final words = query
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((w) => w.isNotEmpty)
+        .toList();
+
+    if (words.isEmpty) return Text(text, style: baseStyle);
 
     final lower = text.toLowerCase();
-    final idx = lower.indexOf(query);
-    if (idx == -1) {
-      return Text(text, style: const TextStyle(color: AppColors.textPrimary));
+
+    // Collect all match ranges for every word.
+    final ranges = <(int, int)>[];
+    for (final word in words) {
+      var start = 0;
+      while (start < lower.length) {
+        final idx = lower.indexOf(word, start);
+        if (idx == -1) break;
+        ranges.add((idx, idx + word.length));
+        start = idx + word.length;
+      }
     }
 
-    return RichText(
-      text: TextSpan(
-        children: [
-          if (idx > 0)
-            TextSpan(
-              text: text.substring(0, idx),
-              style: const TextStyle(color: AppColors.textPrimary),
-            ),
-          TextSpan(
-            text: text.substring(idx, idx + query.length),
-            style: const TextStyle(
-              color: AppColors.accent,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          if (idx + query.length < text.length)
-            TextSpan(
-              text: text.substring(idx + query.length),
-              style: const TextStyle(color: AppColors.textPrimary),
-            ),
-        ],
-      ),
+    if (ranges.isEmpty) return Text(text, style: baseStyle);
+
+    // Sort then merge overlapping/adjacent ranges.
+    ranges.sort((a, b) => a.$1.compareTo(b.$1));
+    final merged = <(int, int)>[];
+    for (final r in ranges) {
+      if (merged.isEmpty || r.$1 >= merged.last.$2) {
+        merged.add(r);
+      } else {
+        final last = merged.removeLast();
+        merged.add((last.$1, r.$2 > last.$2 ? r.$2 : last.$2));
+      }
+    }
+
+    final highlightStyle = baseStyle.copyWith(
+      color: AppColors.accent,
+      fontWeight: FontWeight.w700,
     );
+
+    final spans = <TextSpan>[];
+    var pos = 0;
+    for (final (start, end) in merged) {
+      if (start > pos) {
+        spans.add(TextSpan(text: text.substring(pos, start), style: baseStyle));
+      }
+      spans.add(TextSpan(text: text.substring(start, end), style: highlightStyle));
+      pos = end;
+    }
+    if (pos < text.length) {
+      spans.add(TextSpan(text: text.substring(pos), style: baseStyle));
+    }
+
+    return RichText(text: TextSpan(children: spans));
   }
 }

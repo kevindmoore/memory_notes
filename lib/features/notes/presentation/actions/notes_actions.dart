@@ -1,5 +1,6 @@
 import 'package:memory_notes/features/notes/application/notes_mobile_store.dart';
 import 'package:memory_notes/features/notes/application/notes_duplication_service.dart';
+import 'package:memory_notes/features/notes/application/notes_merge_service.dart';
 import 'package:memory_notes/features/notes/application/notes_workspace_store.dart';
 import 'package:memory_notes/features/notes/application/todo_file_controller.dart';
 import 'package:memory_notes/features/notes/data/models.dart';
@@ -8,10 +9,12 @@ class NotesListActions {
   const NotesListActions({
     required this.notesWorkspace,
     required this.duplication,
+    required this.merge,
   });
 
   final NotesWorkspaceStore notesWorkspace;
   final NotesDuplicationService duplication;
+  final NotesMergeService merge;
 
   Future<TodoFile?> createList(
     String name,
@@ -20,7 +23,7 @@ class NotesListActions {
   }
 
   Future<void> openFile(TodoFile file) {
-    return notesWorkspace.selectFile(file);
+    return notesWorkspace.openFile(file);
   }
 
   Future<void> closeFile(TodoFile file) {
@@ -104,18 +107,28 @@ class NotesListActions {
   }) {
     return duplication.duplicateTodo(todo, name: name);
   }
+
+  Future<ListMergeResult> mergeDuplicateLists({
+    int? preferredFileId,
+  }) {
+    return merge.mergeDuplicateLists(preferredFileId: preferredFileId);
+  }
 }
 
 class NoteDetailActions {
   const NoteDetailActions({
     required this.todoFiles,
     required this.notesMobile,
+    required this.notesWorkspace,
     required this.duplication,
+    required this.merge,
   });
 
   final TodoFileController todoFiles;
   final NotesMobileStore notesMobile;
+  final NotesWorkspaceStore notesWorkspace;
   final NotesDuplicationService duplication;
+  final NotesMergeService merge;
 
   Future<Category?> createCategory({
     required int fileId,
@@ -142,10 +155,20 @@ class NoteDetailActions {
     return duplication.duplicateCategory(category, name: name);
   }
 
+  Future<ListMergeResult> mergeDuplicateLists({
+    int? preferredFileId,
+  }) {
+    return merge.mergeDuplicateLists(preferredFileId: preferredFileId);
+  }
+
   Future<void> reloadList({
     required int fileId,
   }) {
     return notesMobile.loadFile(fileId);
+  }
+
+  Future<void> closeList(TodoFile file) {
+    return notesWorkspace.closeFile(file);
   }
 
   Future<void> deleteList({

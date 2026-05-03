@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:memory_notes/features/notes/application/notes_query_service.dart';
 import 'package:memory_notes/features/notes/data/models.dart';
 import 'package:memory_notes/features/notes/models/notes_sort_order.dart';
+import 'package:memory_notes/features/notes/models/todo_sort_order.dart';
 
 void main() {
   group('NotesQueryService', () {
@@ -17,6 +18,21 @@ void main() {
       final result = service.normalizeFileIds([2, 99, 2, 1, 3, 1], files);
 
       expect(result, [2, 1, 3]);
+    });
+
+    test('normalizeName trims casing and repeated whitespace', () {
+      expect(service.normalizeName('  Work   Notes  '), 'work notes');
+    });
+
+    test('findFileByName matches case-insensitively', () {
+      final files = [
+        const TodoFile(name: 'Work Notes', id: 1),
+        const TodoFile(name: 'Personal', id: 2),
+      ];
+
+      final match = service.findFileByName(files, '  work   notes ');
+
+      expect(match?.id, 1);
     });
 
     test('sortFiles prefers explicit open file order ahead of date sorting', () {
@@ -83,12 +99,46 @@ void main() {
       expect(breadcrumb, 'Root > Child > Inbox · Work');
     });
 
+    test('sortTodos newest orders by lastUpdated', () {
+      final older = Todo(
+        id: 1,
+        name: 'Older',
+        categoryId: 100,
+        lastUpdated: DateTime(2024, 1, 1),
+      );
+      final newer = Todo(
+        id: 2,
+        name: 'Newer',
+        categoryId: 100,
+        lastUpdated: DateTime(2024, 6, 1),
+      );
+
+      final result = service.sortTodos(
+        [older, newer],
+        sortOrder: TodoSortOrder.newest,
+      );
+
+      expect(result.map((t) => t.id).toList(), [2, 1]);
+    });
+
+    test('sortTodos nameAZ orders alphabetically', () {
+      const b = Todo(id: 1, name: 'Beta', categoryId: 100);
+      const a = Todo(id: 2, name: 'Alpha', categoryId: 100);
+
+      final result = service.sortTodos(
+        [b, a],
+        sortOrder: TodoSortOrder.nameAZ,
+      );
+
+      expect(result.map((t) => t.name).toList(), ['Alpha', 'Beta']);
+    });
+
     test('topLevelTodoCount counts only todos without a parent', () {
       const topA = Todo(id: 1, name: 'A', categoryId: 100);
       const topB = Todo(id: 2, name: 'B', categoryId: 100);
       const child = Todo(id: 3, name: 'Child', categoryId: 100, parentTodoId: 1);
 
-      final count = service.topLevelTodoCount( {
+      final count = service.topLevelTodoCount({
         100: const [topA, topB, child],
       }, 100);
 

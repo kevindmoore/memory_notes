@@ -9,7 +9,6 @@ abstract class NotesWorkspaceViewState with _$NotesWorkspaceViewState {
     @Default(<TodoFile>[]) List<TodoFile> files,
     @Default(<DesktopWorkspaceFileItem>[]) List<DesktopWorkspaceFileItem> fileItems,
     @Default(<DesktopWorkspaceFileItem>[]) List<DesktopWorkspaceFileItem> openFileItems,
-    @Default(<DesktopWorkspaceFileItem>[]) List<DesktopWorkspaceFileItem> availableFileItems,
     @Default(<int>[]) List<int> openFileIds,
     TodoFile? selectedFile,
     Category? selectedCategory,

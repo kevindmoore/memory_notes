@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:memory_notes/core/theme/app_theme.dart';
 import 'package:memory_notes/features/notes/data/models.dart';
+import 'package:memory_notes/features/notes/models/todo_sort_order.dart';
 import 'package:memory_notes/features/notes/presentation/workspace/todo_drilldown.dart';
 import 'package:memory_notes/features/notes/presentation/workspace/todo_notes_pane.dart';
 import 'package:memory_notes/features/speech/application/speech_controller.dart';
@@ -46,6 +47,7 @@ class DesktopNotesPanel extends StatelessWidget {
     required this.categoryTaskCounts,
     required this.category,
     required this.todos,
+    required this.todoSortOrder,
     required this.selectedTodo,
     required this.selectedTodoPath,
     required this.expandedTodoId,
@@ -69,6 +71,7 @@ class DesktopNotesPanel extends StatelessWidget {
   final Map<int, int> categoryTaskCounts;
   final Category? category;
   final List<Todo> todos;
+  final TodoSortOrder todoSortOrder;
   final Todo? selectedTodo;
   final List<int> selectedTodoPath;
   final Signal<int?> expandedTodoId;
@@ -267,6 +270,7 @@ class DesktopNotesPanel extends StatelessWidget {
                             child: DesktopTodoDrilldown(
                               category: category!,
                               todos: todos,
+                              todoSortOrder: todoSortOrder,
                               selectedTodoPath: selectedTodoPath,
                               expandedTodoId: expandedTodoId,
                               selectedTodo: selectedTodo,

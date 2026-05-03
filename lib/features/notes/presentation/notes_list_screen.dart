@@ -50,7 +50,7 @@ class NotesListScreen extends StatefulWidget {
 
 enum _CategoryAction { duplicate, rename, delete }
 
-enum _WorkspaceAction { openList, reloadAll }
+enum _WorkspaceAction { openList, reloadAll, mergeDuplicates }
 
 class _NotesListScreenState extends State<NotesListScreen> {
   static const _desktopBreakpoint = 700.0;
@@ -134,6 +134,14 @@ class _NotesListScreenState extends State<NotesListScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       widget.notesWorkspace.initialize();
     });
+  }
+
+  @override
+  void reassemble() {
+    super.reassemble();
+    widget.notesWorkspace.repairEmptyOpenWorkspaceFromLoadedData(
+      sortOrder: _sortOrder,
+    );
   }
 
   @override
@@ -225,17 +233,18 @@ class _NotesListScreenState extends State<NotesListScreen> {
       categorySortOrder: _categorySortOrder,
       todoSortOrder: _todoSortOrder,
     );
-    final filteredFileItems = query.isEmpty
-        ? workspaceView.fileItems
-        : workspaceView.fileItems
-            .where((item) => item.file.name.toLowerCase().contains(query))
-            .toList(growable: false);
+    List<DesktopWorkspaceFileItem> filterItems(List<DesktopWorkspaceFileItem> items) {
+      if (query.isEmpty) return items;
+      return items.where((item) => item.file.name.toLowerCase().contains(query)).toList(
+            growable: false,
+          );
+    }
 
     return MobileListsView(
       searchController: _mobileSearchController,
       searchQuery: query,
       isLoading: controller.isLoading.value,
-      fileItems: filteredFileItems,
+      fileItems: filterItems(workspaceView.openFileItems),
       onOpenWorkspaceMenu: () => _showWorkspaceMenu(context),
       onCreateList: () => _showCreateListDialog(context),
       onRefresh: controller.load,
@@ -388,6 +397,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
                                       categories: viewState.categories,
                                       categoryTaskCounts: categoryTaskCounts,
                                       todos: viewState.todos,
+                                      todoSortOrder: _todoSortOrder,
                                       selectedTodo: viewState.selectedTodo,
                                       selectedTodoPath: viewState.selectedTodoPath,
                                       expandedTodoId: _expandedTodoId,
@@ -419,7 +429,8 @@ class _NotesListScreenState extends State<NotesListScreen> {
                                       onTodoDuplicate: (todo) =>
                                           _showDuplicateTodoDialog(context, todo),
                                       onTodoRename: (todo) => _showRenameTodoDialog(context, todo),
-                                      onTodoDelete: (todo) => widget.todos.deleteTodo(todo),
+                                      onTodoDelete: (todo) =>
+                                          widget.notesWorkspace.deleteTodo(todo),
                                       onTodoToggle: (todo) => widget.todos.toggleDone(todo),
                                       onSaveTodoNotes: _saveTodoNotes,
                                       onCategorySortMenu: () => _showCategorySortMenu(context),
@@ -454,6 +465,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
       hintText: 'List name',
       confirmLabel: 'Create',
       speech: widget.speech,
+      validator: _validateListName,
     );
     if (name == null) return;
     await widget.notesListActions.createList(name);
@@ -502,14 +514,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
     if (selectedTodo?.id == null) {
       return null;
     }
-
-    final selectedTodoId = selectedTodo!.id!;
-    final hasVisibleChildPanel = todos.any((todo) => todo.parentTodoId == selectedTodoId);
-    if (hasVisibleChildPanel) {
-      return selectedTodoId;
-    }
-
-    return selectedTodo.parentTodoId;
+    return selectedTodo!.parentTodoId;
   }
 
   Future<void> _showRenameListDialog(BuildContext context, TodoFile file) async {
@@ -520,6 +525,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
       confirmLabel: 'Rename',
       initialValue: file.name,
       speech: widget.speech,
+      validator: (value) => _validateListName(value, excludingId: file.id),
     );
     if (name == null || name == file.name) return;
     await widget.notesListActions.renameList(file, name);
@@ -533,11 +539,45 @@ class _NotesListScreenState extends State<NotesListScreen> {
       confirmLabel: 'Duplicate',
       initialValue: '${file.name} (Copy)',
       speech: widget.speech,
+      validator: _validateListName,
     );
     if (name == null) return;
     await widget.notesListActions.duplicateList(
       file: file,
       name: name,
+    );
+  }
+
+  String? _validateListName(String value, {int? excludingId}) {
+    final duplicate = widget.todoFiles.findByName(value, excludingId: excludingId);
+    if (duplicate != null) {
+      return 'A list named "${duplicate.name}" already exists.';
+    }
+    return null;
+  }
+
+  Future<void> _mergeDuplicateLists({
+    int? preferredFileId,
+  }) async {
+    final result = await widget.notesListActions.mergeDuplicateLists(
+      preferredFileId: preferredFileId,
+    );
+    widget.notesWorkspace.syncWorkspace();
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    if (!result.didMerge) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('No duplicate lists found to merge.')),
+      );
+      return;
+    }
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          'Merged ${result.mergedListCount} duplicate list'
+          '${result.mergedListCount == 1 ? '' : 's'} into "${result.primaryFile?.name ?? 'the primary list'}".',
+        ),
+      ),
     );
   }
 
@@ -571,17 +611,14 @@ class _NotesListScreenState extends State<NotesListScreen> {
   }
 
   Future<void> _showOpenListDialog(BuildContext context) async {
-    final viewState = widget.notesWorkspace.buildViewState(
+    final closedItems = widget.notesWorkspace.buildClosedFileItems(
       sortOrder: _sortOrder,
-      categorySortOrder: _categorySortOrder,
-      todoSortOrder: _todoSortOrder,
     );
-    final unopenedItems = viewState.availableFileItems;
     final selectedFile = await showNotesSelectionDialog<TodoFile>(
       context,
       title: 'Open List',
       emptyMessage: 'All lists are already open.',
-      items: unopenedItems
+      items: closedItems
           .map(
             (item) => NotesSelectionDialogItem<TodoFile>(
               value: item.file,
@@ -708,12 +745,11 @@ class _NotesListScreenState extends State<NotesListScreen> {
   }
 
   Future<void> _showWorkspaceMenu(BuildContext context) async {
-    final viewState = widget.notesWorkspace.buildViewState(
-      sortOrder: _sortOrder,
-      categorySortOrder: _categorySortOrder,
-      todoSortOrder: _todoSortOrder,
-    );
-    final canOpenList = viewState.availableFileItems.isNotEmpty;
+    final canOpenList = widget.notesWorkspace
+        .buildClosedFileItems(
+          sortOrder: _sortOrder,
+        )
+        .isNotEmpty;
 
     final action = await showNotesActionSheet<Object>(
       context,
@@ -728,6 +764,11 @@ class _NotesListScreenState extends State<NotesListScreen> {
           value: _WorkspaceAction.reloadAll,
           label: 'Reload All',
           icon: Icons.refresh_rounded,
+        ),
+        const NotesActionSheetItem<Object>(
+          value: _WorkspaceAction.mergeDuplicates,
+          label: 'Merge Duplicate Lists',
+          icon: Icons.merge_type_rounded,
         ),
         ..._sortActions.map(
           (action) => NotesActionSheetItem<Object>(
@@ -748,6 +789,11 @@ class _NotesListScreenState extends State<NotesListScreen> {
 
     if (action == _WorkspaceAction.reloadAll) {
       await widget.notesListActions.reloadAll();
+      return;
+    }
+
+    if (action == _WorkspaceAction.mergeDuplicates) {
+      await _mergeDuplicateLists();
       return;
     }
 

@@ -1,7 +1,10 @@
 import 'package:auto_size_text/auto_size_text.dart';
 import 'package:flutter/material.dart';
 import 'package:memory_notes/core/theme/app_theme.dart';
+import 'package:memory_notes/features/notes/application/notes_query_service.dart';
 import 'package:memory_notes/features/notes/data/models.dart';
+import 'package:memory_notes/features/notes/models/todo_sort_order.dart';
+import 'package:memory_notes/features/notes/presentation/widgets/child_task_count_badge.dart';
 import 'package:signals/signals.dart';
 
 const desktopTodoColumnWidth = 320.0;
@@ -14,6 +17,7 @@ class DesktopTodoDrilldown extends StatefulWidget {
     super.key,
     required this.category,
     required this.todos,
+    required this.todoSortOrder,
     required this.selectedTodoPath,
     required this.expandedTodoId,
     required this.selectedTodo,
@@ -29,6 +33,7 @@ class DesktopTodoDrilldown extends StatefulWidget {
 
   final Category category;
   final List<Todo> todos;
+  final TodoSortOrder todoSortOrder;
   final List<int> selectedTodoPath;
   final Signal<int?> expandedTodoId;
   final Todo? selectedTodo;
@@ -56,7 +61,11 @@ class _DesktopTodoDrilldownState extends State<DesktopTodoDrilldown> {
 
   @override
   Widget build(BuildContext context) {
-    final columns = buildTodoColumns(widget.todos, widget.selectedTodoPath);
+    final columns = buildTodoColumns(
+      widget.todos,
+      widget.selectedTodoPath,
+      sortOrder: widget.todoSortOrder,
+    );
     final isKeyboardVisible = MediaQuery.viewInsetsOf(context).bottom > 0;
     return Column(
       children: [
@@ -120,6 +129,7 @@ class _DesktopTodoDrilldownState extends State<DesktopTodoDrilldown> {
                                 child: DesktopTodoColumn(
                                   title: index == 0 ? 'Tasks' : 'Children',
                                   todos: columns[index],
+                                  allTodos: widget.todos,
                                   selectedTodoId: index < widget.selectedTodoPath.length
                                       ? widget.selectedTodoPath[index]
                                       : null,
@@ -191,11 +201,19 @@ class _DesktopTodoDrilldownState extends State<DesktopTodoDrilldown> {
   }
 }
 
-List<List<Todo>> buildTodoColumns(List<Todo> todos, List<int> selectedTodoPath) {
+List<List<Todo>> buildTodoColumns(
+  List<Todo> todos,
+  List<int> selectedTodoPath, {
+  required TodoSortOrder sortOrder,
+}) {
+  const query = NotesQueryService();
   final columns = <List<Todo>>[];
   int? parentTodoId;
   for (var depth = 0;; depth++) {
-    final columnTodos = todos.where((todo) => todo.parentTodoId == parentTodoId).toList();
+    final columnTodos = query.sortTodos(
+      todos.where((todo) => todo.parentTodoId == parentTodoId),
+      sortOrder: sortOrder,
+    );
     if (columnTodos.isEmpty) {
       break;
     }
@@ -213,6 +231,7 @@ class DesktopTodoColumn extends StatelessWidget {
     super.key,
     required this.title,
     required this.todos,
+    required this.allTodos,
     required this.selectedTodoId,
     required this.onSelectTodo,
     required this.onDuplicate,
@@ -224,6 +243,7 @@ class DesktopTodoColumn extends StatelessWidget {
 
   final String title;
   final List<Todo> todos;
+  final List<Todo> allTodos;
   final int? selectedTodoId;
   final ValueChanged<Todo> onSelectTodo;
   final ValueChanged<Todo> onDuplicate;
@@ -284,6 +304,8 @@ class DesktopTodoColumn extends StatelessWidget {
                   padding: EdgeInsets.only(bottom: itemSpacing),
                   child: DesktopTodoTile(
                     todo: todos[index],
+                    childTaskCount:
+                        allTodos.where((todo) => todo.parentTodoId == todos[index].id).length,
                     isSelected: selectedTodoId == todos[index].id,
                     onTap: () => onSelectTodo(todos[index]),
                     onDuplicate: () => onDuplicate(todos[index]),
@@ -306,6 +328,7 @@ class DesktopTodoTile extends StatelessWidget {
   const DesktopTodoTile({
     super.key,
     required this.todo,
+    required this.childTaskCount,
     required this.isSelected,
     required this.onTap,
     required this.onDuplicate,
@@ -316,6 +339,7 @@ class DesktopTodoTile extends StatelessWidget {
   });
 
   final Todo todo;
+  final int childTaskCount;
   final bool isSelected;
   final VoidCallback onTap;
   final VoidCallback onDuplicate;
@@ -387,26 +411,35 @@ class DesktopTodoTile extends StatelessWidget {
                     fontSize: 11,
                   ),
                 ),
-          trailing: PopupMenuButton<String>(
-            color: AppColors.surface,
-            icon: const Icon(Icons.more_horiz_rounded, color: AppColors.textDisabled),
-            onSelected: (value) {
-              switch (value) {
-                case 'add-child':
-                  onCreateChild();
-                case 'rename':
-                  onRename();
-                case 'duplicate':
-                  onDuplicate();
-                case 'delete':
-                  onDelete();
-              }
-            },
-            itemBuilder: (context) => const [
-              PopupMenuItem(value: 'add-child', child: Text('Add Child Task')),
-              PopupMenuItem(value: 'duplicate', child: Text('Duplicate Task')),
-              PopupMenuItem(value: 'rename', child: Text('Rename Task')),
-              PopupMenuItem(value: 'delete', child: Text('Delete Task')),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ChildTaskCountBadge(
+                count: childTaskCount,
+                isSelected: isSelected,
+              ),
+              PopupMenuButton<String>(
+                color: AppColors.surface,
+                icon: const Icon(Icons.more_horiz_rounded, color: AppColors.textDisabled),
+                onSelected: (value) {
+                  switch (value) {
+                    case 'add-child':
+                      onCreateChild();
+                    case 'rename':
+                      onRename();
+                    case 'duplicate':
+                      onDuplicate();
+                    case 'delete':
+                      onDelete();
+                  }
+                },
+                itemBuilder: (context) => const [
+                  PopupMenuItem(value: 'add-child', child: Text('Add Child Task')),
+                  PopupMenuItem(value: 'duplicate', child: Text('Duplicate Task')),
+                  PopupMenuItem(value: 'rename', child: Text('Rename Task')),
+                  PopupMenuItem(value: 'delete', child: Text('Delete Task')),
+                ],
+              ),
             ],
           ),
         ),

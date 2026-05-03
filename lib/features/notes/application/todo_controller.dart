@@ -14,8 +14,8 @@ class TodoController {
     this._todoRepo, {
     CategoryController? categories,
     TodoFileController? todoFiles,
-  }) : _categories = categories,
-       _todoFiles = todoFiles;
+  })  : _categories = categories,
+        _todoFiles = todoFiles;
 
   final todosByCategory = mapSignal<int, List<Todo>>({});
   final loadedTodoCategoryIds = listSignal<int>([]);
@@ -154,6 +154,39 @@ class TodoController {
     } catch (e) {
       logError('TodoController.deleteTodo: $e');
     }
+  }
+
+  Future<Todo?> moveTodoToCategory({
+    required Todo todo,
+    required int targetFileId,
+    required int targetCategoryId,
+    DateTime? timestamp,
+  }) async {
+    final sourceCategoryId = todo.categoryId;
+    if (sourceCategoryId == null) return null;
+    try {
+      final nextTimestamp = timestamp ?? DateTime.now();
+      final updated = await _todoRepo.update(
+        todo.copyWith(
+          todoFileId: targetFileId,
+          categoryId: targetCategoryId,
+          lastUpdated: nextTimestamp,
+        ),
+        targetFileId,
+        targetCategoryId,
+      );
+      if (updated != null) {
+        removeTodoById(categoryId: sourceCategoryId, todoId: todo.id);
+        final destinationTodos =
+            List<Todo>.from(todosByCategory[targetCategoryId] ?? const <Todo>[]);
+        destinationTodos.add(updated);
+        todosByCategory[targetCategoryId] = destinationTodos;
+      }
+      return updated;
+    } catch (e) {
+      logError('TodoController.moveTodoToCategory: $e');
+    }
+    return null;
   }
 
   void removeTodoById({

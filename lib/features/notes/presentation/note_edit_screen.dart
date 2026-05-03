@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
+import 'package:memory_notes/app/router/app_router.dart';
 import 'package:memory_notes/core/theme/app_theme.dart';
 import 'package:memory_notes/features/notes/application/notes_mobile_store.dart';
 import 'package:memory_notes/features/notes/data/models.dart';
@@ -9,6 +10,7 @@ import 'package:memory_notes/features/notes/models/mobile_note_edit_view_state.d
 import 'package:memory_notes/features/notes/models/todo_sort_order.dart';
 import 'package:memory_notes/features/notes/presentation/actions/notes_actions.dart';
 import 'package:memory_notes/features/notes/presentation/dialogs/notes_dialogs.dart';
+import 'package:memory_notes/features/notes/presentation/widgets/child_task_count_badge.dart';
 import 'package:memory_notes/features/speech/application/speech_controller.dart';
 import 'package:memory_notes/features/speech/presentation/speech_mic_button.dart';
 import 'package:signals/signals_flutter.dart';
@@ -159,21 +161,26 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
           title: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                viewState.fileName,
-                style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+              _MobileNoteBreadcrumbBar(
+                fileName: viewState.fileName,
+                category: viewState.category,
+                allTodos: viewState.allTodos,
+                parentTodo: viewState.parentTodo,
+                focusedTodo: viewState.focusedTodo,
+                showFocusedTodo: widget.openFocusedTodoNotes,
+                onNavigate: _navigateToBreadcrumb,
               ),
+              const SizedBox(height: 4),
               Text(
                 viewState.screenTitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                ),
+                    color: AppColors.textPrimary, fontSize: 20, fontWeight: FontWeight.bold),
               ),
             ],
           ),
-          toolbarHeight: 68,
+          toolbarHeight: 84,
           actions: [
             IconButton(
               icon: const Icon(Icons.more_vert_rounded, color: AppColors.textSecondary),
@@ -310,6 +317,7 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
   }
 
   Widget _buildInputBar() {
+    final isKeyboardVisible = MediaQuery.viewInsetsOf(context).bottom > 0;
     return SafeArea(
       top: false,
       child: Container(
@@ -317,11 +325,11 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
           color: AppColors.navBackground,
           border: Border(top: BorderSide(color: AppColors.divider)),
         ),
-        padding: EdgeInsets.only(
+        padding: const EdgeInsets.only(
           left: 16,
           right: 12,
           top: 12,
-          bottom: MediaQuery.of(context).viewInsets.bottom + 12,
+          bottom: 12,
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -384,25 +392,35 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                _QuickActionChip(
-                  icon: Icons.note_outlined,
-                  label: 'Add Note',
-                  onTap: _showAddNoteDialog,
-                ),
-                const SizedBox(width: 12),
-                _QuickActionChip(
-                  icon: Icons.subdirectory_arrow_right_rounded,
-                  label: 'Add Subtask',
-                  onTap: () {
-                    final parentTodoId = widget.parentTodoId;
-                    if (parentTodoId == null) return;
-                    _showAddSubtaskDialog(parentTodoId);
-                  },
-                ),
-              ],
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 180),
+              child: isKeyboardVisible
+                  ? const SizedBox.shrink()
+                  : Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            _QuickActionChip(
+                              icon: Icons.note_outlined,
+                              label: 'Add Note',
+                              onTap: _showAddNoteDialog,
+                            ),
+                            const SizedBox(width: 12),
+                            _QuickActionChip(
+                              icon: Icons.subdirectory_arrow_right_rounded,
+                              label: 'Add Subtask',
+                              onTap: () {
+                                final parentTodoId = widget.parentTodoId;
+                                if (parentTodoId == null) return;
+                                _showAddSubtaskDialog(parentTodoId);
+                              },
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
             ),
           ],
         ),
@@ -469,10 +487,13 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
       itemCount: viewState.visibleTodos.length,
       itemBuilder: (context, i) {
         final todo = viewState.visibleTodos[i];
+        final childTaskCount =
+            viewState.allTodos.where((item) => item.parentTodoId == todo.id).length;
         return _TodoTaskTile(
           todo: todo,
-          hasChildren: viewState.allTodos.any((item) => item.parentTodoId == todo.id),
-          onTap: () => _openTodo(todo, viewState.allTodos),
+          childTaskCount: childTaskCount,
+          onOpenChildren: childTaskCount > 0 ? () => _openTodoChildren(todo) : null,
+          onOpenNotes: () => _openTodoNotes(todo),
           isFocused: widget.focusedTodoId == todo.id,
           onToggleDone: () => widget.notesMobile.toggleTodo(todo),
           onRename: () => _showRenameTodoDialog(context, todo),
@@ -545,16 +566,16 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
     );
   }
 
-  Future<void> _openTodo(Todo todo, List<Todo> allTodos) async {
-    final hasChildren = allTodos.any((item) => item.parentTodoId == todo.id);
+  Future<void> _openTodoChildren(Todo todo) async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
+        settings: RouteSettings(name: _mobileTodoChildrenRouteName(todo.id)),
         builder: (_) => NoteEditScreen(
           fileId: widget.fileId,
           categoryId: widget.categoryId,
-          parentTodoId: hasChildren ? todo.id : widget.parentTodoId,
+          parentTodoId: todo.id,
           focusedTodoId: todo.id,
-          openFocusedTodoNotes: !hasChildren,
+          openFocusedTodoNotes: false,
           notesMobile: widget.notesMobile,
           noteEditActions: widget.noteEditActions,
           speech: widget.speech,
@@ -562,6 +583,80 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
       ),
     );
   }
+
+  Future<void> _openTodoNotes(Todo todo) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        settings: RouteSettings(name: _mobileTodoNotesRouteName(todo.id)),
+        builder: (_) => NoteEditScreen(
+          fileId: widget.fileId,
+          categoryId: widget.categoryId,
+          parentTodoId: widget.parentTodoId,
+          focusedTodoId: todo.id,
+          openFocusedTodoNotes: true,
+          notesMobile: widget.notesMobile,
+          noteEditActions: widget.noteEditActions,
+          speech: widget.speech,
+        ),
+      ),
+    );
+  }
+
+  void _navigateToBreadcrumb(_MobileNoteBreadcrumbTarget target) {
+    FocusManager.instance.primaryFocus?.unfocus();
+    switch (target.type) {
+      case _MobileNoteBreadcrumbTargetType.file:
+        Navigator.of(context).popUntil(
+          (route) => route.settings.name == NoteDetailRoute.name || route.isFirst,
+        );
+      case _MobileNoteBreadcrumbTargetType.category:
+        Navigator.of(context).popUntil(
+          (route) => route.settings.name == NoteEditRoute.name || route.isFirst,
+        );
+        if (!mounted || widget.parentTodoId != null || widget.openFocusedTodoNotes) {
+          return;
+        }
+        _replaceWithNoteEditRoute(
+          parentTodoId: null,
+          focusedTodoId: null,
+          openFocusedTodoNotes: false,
+        );
+      case _MobileNoteBreadcrumbTargetType.todo:
+        final todoId = target.todo?.id;
+        if (todoId == null) return;
+        var foundExistingRoute = false;
+        Navigator.of(context).popUntil((route) {
+          foundExistingRoute = route.settings.name == _mobileTodoChildrenRouteName(todoId);
+          return foundExistingRoute || route.settings.name == NoteEditRoute.name || route.isFirst;
+        });
+        return;
+    }
+  }
+
+  void _replaceWithNoteEditRoute({
+    required int? parentTodoId,
+    required int? focusedTodoId,
+    required bool openFocusedTodoNotes,
+  }) {
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute<void>(
+        builder: (_) => NoteEditScreen(
+          fileId: widget.fileId,
+          categoryId: widget.categoryId,
+          parentTodoId: parentTodoId,
+          focusedTodoId: focusedTodoId,
+          openFocusedTodoNotes: openFocusedTodoNotes,
+          notesMobile: widget.notesMobile,
+          noteEditActions: widget.noteEditActions,
+          speech: widget.speech,
+        ),
+      ),
+    );
+  }
+
+  String _mobileTodoChildrenRouteName(int? todoId) => 'mobileTodoChildren:$todoId';
+
+  String _mobileTodoNotesRouteName(int? todoId) => 'mobileTodoNotes:$todoId';
 
   Future<void> _showCategoryMenu(BuildContext context, Category category) async {
     final action = await showNotesActionSheet<String>(context, actions: _categoryActions);
@@ -685,6 +780,182 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
     if (action != null) {
       setState(() => _todoSortOrder = action);
     }
+  }
+}
+
+enum _MobileNoteBreadcrumbTargetType { file, category, todo }
+
+class _MobileNoteBreadcrumbTarget {
+  const _MobileNoteBreadcrumbTarget.file()
+      : type = _MobileNoteBreadcrumbTargetType.file,
+        todo = null;
+
+  const _MobileNoteBreadcrumbTarget.category()
+      : type = _MobileNoteBreadcrumbTargetType.category,
+        todo = null;
+
+  const _MobileNoteBreadcrumbTarget.todo(this.todo) : type = _MobileNoteBreadcrumbTargetType.todo;
+
+  final _MobileNoteBreadcrumbTargetType type;
+  final Todo? todo;
+}
+
+class _MobileNoteBreadcrumbBar extends StatelessWidget {
+  const _MobileNoteBreadcrumbBar({
+    required this.fileName,
+    required this.category,
+    required this.allTodos,
+    required this.parentTodo,
+    required this.focusedTodo,
+    required this.showFocusedTodo,
+    required this.onNavigate,
+  });
+
+  final String fileName;
+  final Category? category;
+  final List<Todo> allTodos;
+  final Todo? parentTodo;
+  final Todo? focusedTodo;
+  final bool showFocusedTodo;
+  final ValueChanged<_MobileNoteBreadcrumbTarget> onNavigate;
+
+  @override
+  Widget build(BuildContext context) {
+    final segments = _buildSegments();
+    return SizedBox(
+      height: 26,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: segments.length,
+        separatorBuilder: (_, __) => const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 3),
+          child: Icon(Icons.chevron_right_rounded, color: AppColors.textDisabled, size: 15),
+        ),
+        itemBuilder: (context, index) {
+          final segment = segments[index];
+          final isLast = index == segments.length - 1;
+          return _MobileNoteBreadcrumbChip(
+            icon: segment.icon,
+            label: segment.label,
+            isCurrent: isLast,
+            onTap: isLast ? null : () => onNavigate(segment.target),
+          );
+        },
+      ),
+    );
+  }
+
+  List<_MobileNoteBreadcrumbSegment> _buildSegments() {
+    final segments = <_MobileNoteBreadcrumbSegment>[
+      _MobileNoteBreadcrumbSegment(
+        icon: Icons.home_rounded,
+        label: fileName.isEmpty ? 'Lists' : fileName,
+        target: const _MobileNoteBreadcrumbTarget.file(),
+      ),
+    ];
+
+    final selectedCategory = category;
+    if (selectedCategory == null) {
+      return segments;
+    }
+    segments.add(
+      _MobileNoteBreadcrumbSegment(
+        icon: Icons.folder_rounded,
+        label: selectedCategory.name,
+        target: const _MobileNoteBreadcrumbTarget.category(),
+      ),
+    );
+
+    final activeTodo = showFocusedTodo ? focusedTodo : parentTodo;
+    final todoPath = _todoPathFor(activeTodo);
+    for (final todo in todoPath) {
+      segments.add(
+        _MobileNoteBreadcrumbSegment(
+          icon: Icons.check_circle_outline_rounded,
+          label: todo.name,
+          target: _MobileNoteBreadcrumbTarget.todo(todo),
+        ),
+      );
+    }
+
+    return segments;
+  }
+
+  List<Todo> _todoPathFor(Todo? todo) {
+    if (todo?.id == null) {
+      return const <Todo>[];
+    }
+    final todosById = {
+      for (final item in allTodos)
+        if (item.id != null) item.id!: item,
+    };
+    final path = <Todo>[];
+    var cursor = todo;
+    final visited = <int>{};
+    while (cursor?.id != null && visited.add(cursor!.id!)) {
+      path.add(cursor);
+      final parentId = cursor.parentTodoId;
+      cursor = parentId == null ? null : todosById[parentId];
+    }
+    return path.reversed.toList(growable: false);
+  }
+}
+
+class _MobileNoteBreadcrumbSegment {
+  const _MobileNoteBreadcrumbSegment({
+    required this.icon,
+    required this.label,
+    required this.target,
+  });
+
+  final IconData icon;
+  final String label;
+  final _MobileNoteBreadcrumbTarget target;
+}
+
+class _MobileNoteBreadcrumbChip extends StatelessWidget {
+  const _MobileNoteBreadcrumbChip({
+    required this.icon,
+    required this.label,
+    required this.isCurrent,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool isCurrent;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isCurrent ? AppColors.textPrimary : AppColors.textSecondary;
+    return InkWell(
+      borderRadius: BorderRadius.circular(999),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 3),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: color, size: 14),
+            const SizedBox(width: 4),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 120),
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: color,
+                  fontSize: 12,
+                  fontWeight: isCurrent ? FontWeight.w700 : FontWeight.w500,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -847,8 +1118,9 @@ class _TodoNotesEditorState extends State<_TodoNotesEditor> {
 
 class _TodoTaskTile extends StatelessWidget {
   final Todo todo;
-  final bool hasChildren;
-  final VoidCallback onTap;
+  final int childTaskCount;
+  final VoidCallback? onOpenChildren;
+  final VoidCallback onOpenNotes;
   final bool isFocused;
   final VoidCallback onToggleDone;
   final Future<void> Function() onAddChild;
@@ -858,8 +1130,9 @@ class _TodoTaskTile extends StatelessWidget {
 
   const _TodoTaskTile({
     required this.todo,
-    required this.hasChildren,
-    required this.onTap,
+    required this.childTaskCount,
+    required this.onOpenChildren,
+    required this.onOpenNotes,
     required this.onToggleDone,
     required this.onAddChild,
     required this.onRename,
@@ -871,6 +1144,8 @@ class _TodoTaskTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasNote = todo.notes.isNotEmpty;
+    final hasChildren = childTaskCount > 0;
+    final showActions = hasChildren || hasNote;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: Container(
@@ -888,85 +1163,74 @@ class _TodoTaskTile extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            InkWell(
-              borderRadius: BorderRadius.circular(12),
-              onTap: onTap,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: Checkbox(
+                      value: todo.done,
+                      onChanged: (_) => onToggleDone(),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      todo.name,
+                      style: TextStyle(
+                        color: todo.done ? AppColors.textDisabled : AppColors.textPrimary,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                        decoration: todo.done ? TextDecoration.lineThrough : null,
+                        decorationColor: AppColors.textDisabled,
+                      ),
+                    ),
+                  ),
+                  if (hasChildren) ...[
+                    const SizedBox(width: 8),
+                    ChildTaskCountBadge(count: childTaskCount),
+                  ],
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => _showOptions(context),
+                    child: const SizedBox(
+                      width: 32,
+                      height: 32,
+                      child: Icon(
+                        Icons.more_horiz_rounded,
+                        color: AppColors.textDisabled,
+                        size: 20,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (showActions) ...[
+              const Divider(height: 1, color: AppColors.cardBorder),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                 child: Row(
                   children: [
-                    SizedBox(
-                      width: 24,
-                      height: 24,
-                      child: Checkbox(
-                        value: todo.done,
-                        onChanged: (_) => onToggleDone(),
-                        visualDensity: VisualDensity.compact,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            todo.name,
-                            style: TextStyle(
-                              color: todo.done ? AppColors.textDisabled : AppColors.textPrimary,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w500,
-                              decoration: todo.done ? TextDecoration.lineThrough : null,
-                              decorationColor: AppColors.textDisabled,
-                            ),
-                          ),
-                          if (hasNote || hasChildren) ...[
-                            const SizedBox(height: 4),
-                            Text(
-                              hasChildren ? 'Open child tasks' : 'Open notes',
-                              style: const TextStyle(
-                                color: AppColors.textSecondary,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                    if (hasNote)
-                      const Padding(
-                        padding: EdgeInsets.only(right: 8),
-                        child: Icon(
-                          Icons.note_outlined,
-                          color: AppColors.textDisabled,
-                          size: 18,
-                        ),
-                      ),
                     if (hasChildren)
-                      const Padding(
-                        padding: EdgeInsets.only(right: 8),
-                        child: Icon(
-                          Icons.chevron_right_rounded,
-                          color: AppColors.textDisabled,
-                          size: 22,
-                        ),
+                      _ActionButton(
+                        icon: Icons.account_tree_outlined,
+                        label: 'Child tasks',
+                        onTap: onOpenChildren!,
                       ),
-                    GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: () => _showOptions(context),
-                      child: const SizedBox(
-                        width: 32,
-                        height: 32,
-                        child: Icon(
-                          Icons.more_horiz_rounded,
-                          color: AppColors.textDisabled,
-                          size: 20,
-                        ),
+                    if (hasNote)
+                      _ActionButton(
+                        icon: Icons.notes_rounded,
+                        label: 'Notes',
+                        onTap: onOpenNotes,
                       ),
-                    ),
                   ],
                 ),
               ),
-            ),
+            ],
           ],
         ),
       ),
@@ -1004,6 +1268,44 @@ class _TodoTaskTile extends StatelessWidget {
       case null:
         return;
     }
+  }
+}
+
+class _ActionButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  const _ActionButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: AppColors.accent),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: const TextStyle(
+                color: AppColors.accent,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

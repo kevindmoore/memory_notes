@@ -6,14 +6,50 @@ import 'package:memory_notes/features/notes/models/todo_sort_order.dart';
 class NotesQueryService {
   const NotesQueryService();
 
+  String normalizeName(String value) {
+    return value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+  }
+
   TodoFile? findFileById(Iterable<TodoFile> files, int? fileId) {
     if (fileId == null) return null;
     return files.where((file) => file.id == fileId).firstOrNull;
   }
 
+  TodoFile? findFileByName(
+    Iterable<TodoFile> files,
+    String name, {
+    int? excludingId,
+  }) {
+    final normalizedName = normalizeName(name);
+    return files.where((file) {
+      if (file.id != null && file.id == excludingId) {
+        return false;
+      }
+      return normalizeName(file.name) == normalizedName;
+    }).firstOrNull;
+  }
+
   Category? findCategoryById(Iterable<Category> categories, int? categoryId) {
     if (categoryId == null) return null;
     return categories.where((category) => category.id == categoryId).firstOrNull;
+  }
+
+  Category? findCategoryByName(
+    Iterable<Category> categories,
+    String name, {
+    int? todoFileId,
+    int? excludingId,
+  }) {
+    final normalizedName = normalizeName(name);
+    return categories.where((category) {
+      if (todoFileId != null && category.todoFileId != todoFileId) {
+        return false;
+      }
+      if (category.id != null && category.id == excludingId) {
+        return false;
+      }
+      return normalizeName(category.name) == normalizedName;
+    }).firstOrNull;
   }
 
   Todo? findTodoById(Iterable<Todo> todos, int? todoId) {
@@ -68,14 +104,18 @@ class NotesQueryService {
   }) {
     final sorted = categories.toList(growable: false);
     sorted.sort((a, b) {
+      // All-done categories sink to the bottom regardless of sort order.
+      final aDone = _isCategoryAllDone(a, todosByCategory);
+      final bDone = _isCategoryAllDone(b, todosByCategory);
+      if (aDone != bDone) return aDone ? 1 : -1;
+
       switch (sortOrder) {
         case CategorySortOrder.nameAZ:
           return a.name.toLowerCase().compareTo(b.name.toLowerCase());
         case CategorySortOrder.nameZA:
           return b.name.toLowerCase().compareTo(a.name.toLowerCase());
         case CategorySortOrder.newest:
-          return (b.lastUpdated ?? b.createdAt ?? DateTime(0))
-              .compareTo(a.lastUpdated ?? a.createdAt ?? DateTime(0));
+          return (b.lastUpdated ?? DateTime(0)).compareTo(a.lastUpdated ?? DateTime(0));
         case CategorySortOrder.todoCount:
           final countComparison = topLevelTodoCount(
             todosByCategory,
@@ -86,6 +126,13 @@ class NotesQueryService {
       }
     });
     return sorted;
+  }
+
+  bool _isCategoryAllDone(Category category, Map<int, List<Todo>> todosByCategory) {
+    final topLevel = todosForCategory(todosByCategory, category.id)
+        .where((t) => t.parentTodoId == null)
+        .toList(growable: false);
+    return topLevel.isNotEmpty && topLevel.every((t) => t.done);
   }
 
   List<Category> categoriesForFile(Iterable<Category> categories, int? fileId) {
@@ -104,16 +151,38 @@ class NotesQueryService {
   }) {
     final sorted = todos.toList(growable: false);
     sorted.sort((a, b) {
+      // Done tasks sink to the bottom regardless of sort order.
+      if (a.done != b.done) return a.done ? 1 : -1;
+
       switch (sortOrder) {
         case TodoSortOrder.nameAZ:
-          return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+          final byName = a.name.toLowerCase().compareTo(b.name.toLowerCase());
+          if (byName != 0) return byName;
+          return _compareTodoIdTieBreak(a, b);
         case TodoSortOrder.nameZA:
-          return b.name.toLowerCase().compareTo(a.name.toLowerCase());
+          final byName = b.name.toLowerCase().compareTo(a.name.toLowerCase());
+          if (byName != 0) return byName;
+          return _compareTodoIdTieBreak(a, b);
         case TodoSortOrder.newest:
-          return (b.createdAt ?? DateTime(0)).compareTo(a.createdAt ?? DateTime(0));
+          final aDate = a.lastUpdated ?? DateTime(0);
+          final bDate = b.lastUpdated ?? DateTime(0);
+          final byDate = bDate.compareTo(aDate);
+          if (byDate != 0) return byDate;
+          return _compareTodoIdTieBreak(a, b);
       }
     });
     return sorted;
+  }
+
+  int _compareTodoIdTieBreak(Todo a, Todo b) {
+    final aId = a.id;
+    final bId = b.id;
+    if (aId != null && bId != null) {
+      return aId.compareTo(bId);
+    }
+    if (aId != null) return -1;
+    if (bId != null) return 1;
+    return 0;
   }
 
   int topLevelTodoCount(Map<int, List<Todo>> todosByCategory, int? categoryId) {
@@ -166,12 +235,11 @@ class NotesQueryService {
       case NotesSortOrder.nameZA:
         return b.name.toLowerCase().compareTo(a.name.toLowerCase());
       case NotesSortOrder.newest:
-        return (b.createdAt ?? DateTime(0)).compareTo(a.createdAt ?? DateTime(0));
+        return (b.lastUpdated ?? DateTime(0)).compareTo(a.lastUpdated ?? DateTime(0));
       case NotesSortOrder.oldest:
-        return (a.createdAt ?? DateTime(0)).compareTo(b.createdAt ?? DateTime(0));
+        return (a.lastUpdated ?? DateTime(0)).compareTo(b.lastUpdated ?? DateTime(0));
       case NotesSortOrder.lastUpdated:
-        return (b.lastUpdated ?? b.createdAt ?? DateTime(0))
-            .compareTo(a.lastUpdated ?? a.createdAt ?? DateTime(0));
+        return (b.lastUpdated ?? DateTime(0)).compareTo(a.lastUpdated ?? DateTime(0));
     }
   }
 }

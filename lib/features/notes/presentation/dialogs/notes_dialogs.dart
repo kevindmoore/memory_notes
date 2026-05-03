@@ -37,6 +37,7 @@ Future<String?> showNotesTextPromptDialog(
   String? initialValue,
   bool multiline = false,
   SpeechController? speech,
+  String? Function(String value)? validator,
 }) async {
   final result = await showDialog<String>(
     context: context,
@@ -47,6 +48,7 @@ Future<String?> showNotesTextPromptDialog(
       initialValue: initialValue,
       multiline: multiline,
       speech: speech,
+      validator: validator,
     ),
   );
 
@@ -65,6 +67,7 @@ class _NotesTextPromptDialog extends StatefulWidget {
     required this.initialValue,
     required this.multiline,
     required this.speech,
+    required this.validator,
   });
 
   final String title;
@@ -73,6 +76,7 @@ class _NotesTextPromptDialog extends StatefulWidget {
   final String? initialValue;
   final bool multiline;
   final SpeechController? speech;
+  final String? Function(String value)? validator;
 
   @override
   State<_NotesTextPromptDialog> createState() => _NotesTextPromptDialogState();
@@ -81,22 +85,50 @@ class _NotesTextPromptDialog extends StatefulWidget {
 class _NotesTextPromptDialogState extends State<_NotesTextPromptDialog> {
   late final TextEditingController _controller;
   late final FocusNode _focusNode;
+  String? _errorText;
 
   @override
   void initState() {
     super.initState();
     _controller = TextEditingController(text: widget.initialValue);
     _focusNode = FocusNode();
+    _errorText = _validate(_controller.text);
+    _controller.addListener(_handleTextChanged);
   }
 
   @override
   void dispose() {
+    _controller.removeListener(_handleTextChanged);
     _focusNode.dispose();
     _controller.dispose();
     super.dispose();
   }
 
+  void _handleTextChanged() {
+    final nextError = _validate(_controller.text);
+    if (nextError == _errorText) return;
+    setState(() {
+      _errorText = nextError;
+    });
+  }
+
+  String? _validate(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      return null;
+    }
+    return widget.validator?.call(trimmed);
+  }
+
   void _close([String? value]) {
+    final trimmed = value?.trim() ?? '';
+    final error = _validate(trimmed);
+    if (trimmed.isNotEmpty && error != null) {
+      setState(() {
+        _errorText = error;
+      });
+      return;
+    }
     _focusNode.unfocus();
     FocusManager.instance.primaryFocus?.unfocus();
     Navigator.of(context).pop(value);
@@ -118,6 +150,7 @@ class _NotesTextPromptDialogState extends State<_NotesTextPromptDialog> {
         textCapitalization: TextCapitalization.sentences,
         decoration: InputDecoration(
           hintText: widget.hintText,
+          errorText: _errorText,
           suffixIcon: widget.speech == null
               ? null
               : SpeechMicButton(
@@ -138,7 +171,7 @@ class _NotesTextPromptDialogState extends State<_NotesTextPromptDialog> {
           child: const Text('Cancel'),
         ),
         ElevatedButton(
-          onPressed: () => _close(_controller.text.trim()),
+          onPressed: _errorText == null ? () => _close(_controller.text.trim()) : null,
           child: Text(widget.confirmLabel),
         ),
       ],

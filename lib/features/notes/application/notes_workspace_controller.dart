@@ -43,9 +43,13 @@ class NotesWorkspaceController {
         : restoredSelection.copyWith(fileId: fileId);
     selection.value = nextSelection;
     _cacheSelection(nextSelection);
-    if (fileId != null && !openFileIds.contains(fileId)) {
+  }
+
+  void openFile(int fileId, {bool clearCategory = true}) {
+    if (!openFileIds.contains(fileId)) {
       openFileIds.add(fileId);
     }
+    selectFile(fileId, clearCategory: clearCategory);
   }
 
   void selectCategory({
@@ -61,9 +65,21 @@ class NotesWorkspaceController {
     );
     selection.value = nextSelection;
     _cacheSelection(nextSelection);
+  }
+
+  void openCategory({
+    required int fileId,
+    required int categoryId,
+    int? todoId,
+  }) {
     if (!openFileIds.contains(fileId)) {
       openFileIds.add(fileId);
     }
+    selectCategory(
+      fileId: fileId,
+      categoryId: categoryId,
+      todoId: todoId,
+    );
   }
 
   void selectTodo({
@@ -138,6 +154,11 @@ class NotesWorkspaceController {
       final nextSelectedFileId = nextOpenFileIds.firstOrNull;
       if (nextSelectedFileId != null) {
         selectFile(nextSelectedFileId);
+      } else if (selected.fileId != null ||
+          selected.categoryId != null ||
+          selected.todoId != null ||
+          selected.todoPath.isNotEmpty) {
+        clearSelection();
       }
       return;
     }

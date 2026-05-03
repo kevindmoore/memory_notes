@@ -41,6 +41,11 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
 
   static const _listMenuActions = [
     NotesActionSheetItem(
+      value: 'close',
+      label: 'Close List',
+      icon: Icons.close_rounded,
+    ),
+    NotesActionSheetItem(
       value: 'rename',
       label: 'Rename List',
       icon: Icons.drive_file_rename_outline_rounded,
@@ -54,6 +59,11 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
       value: 'reload',
       label: 'Reload',
       icon: Icons.refresh_rounded,
+    ),
+    NotesActionSheetItem(
+      value: 'mergeDuplicates',
+      label: 'Merge Duplicate Lists',
+      icon: Icons.merge_type_rounded,
     ),
     NotesActionSheetItem(
       value: 'delete',
@@ -343,6 +353,11 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
     );
 
     switch (action) {
+      case 'close':
+        await widget.noteDetailActions.closeList(file);
+        if (context.mounted) {
+          context.maybePop();
+        }
       case 'rename':
         if (!context.mounted) return;
         final name = await showNotesTextPromptDialog(
@@ -352,6 +367,7 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
           confirmLabel: 'Rename',
           initialValue: file.name,
           speech: widget.speech,
+          validator: (value) => _validateListName(value, excludingId: file.id),
         );
         if (name != null && name != file.name) {
           await widget.noteDetailActions.renameList(
@@ -368,6 +384,7 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
           confirmLabel: 'Duplicate',
           initialValue: '${file.name} (Copy)',
           speech: widget.speech,
+          validator: _validateListName,
         );
         if (duplicateName == null) return;
         final duplicated = await widget.noteDetailActions.duplicateList(
@@ -385,6 +402,22 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
         }
       case 'reload':
         await widget.noteDetailActions.reloadList(fileId: _todoFileId);
+      case 'mergeDuplicates':
+        final result = await widget.noteDetailActions.mergeDuplicateLists(
+          preferredFileId: file.id,
+        );
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                result.didMerge
+                    ? 'Merged ${result.mergedListCount} duplicate list'
+                        '${result.mergedListCount == 1 ? '' : 's'}.'
+                    : 'No duplicate lists found to merge.',
+              ),
+            ),
+          );
+        }
       case 'delete':
         if (!context.mounted) return;
         final confirmed = await showNotesConfirmDialog(
@@ -412,6 +445,17 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
     if (action != null) {
       setState(() => _categorySortOrder = action);
     }
+  }
+
+  String? _validateListName(String value, {int? excludingId}) {
+    final duplicate = widget.noteDetailActions.todoFiles.findByName(
+      value,
+      excludingId: excludingId,
+    );
+    if (duplicate != null) {
+      return 'A list named "${duplicate.name}" already exists.';
+    }
+    return null;
   }
 }
 

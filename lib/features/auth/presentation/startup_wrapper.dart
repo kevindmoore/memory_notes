@@ -32,13 +32,16 @@ class _StartupWrapperState extends State<StartupWrapper> {
   }
 
   Future<void> _init() async {
-    await widget.auth.loadUser();
-    if (mounted) {
-      setState(() => _initialized = true);
-    }
-    if (widget.auth.isLoggedIn.value) {
-      await widget.preloadAllData();
-      await widget.initializeSync();
+    try {
+      await widget.auth.loadUser();
+      if (widget.auth.isLoggedIn.value) {
+        await widget.preloadAllData();
+        await widget.initializeSync();
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _initialized = true);
+      }
     }
   }
 

@@ -1,4 +1,5 @@
 import 'package:lumberdash/lumberdash.dart';
+import 'package:memory_notes/features/notes/application/notes_query_service.dart';
 import 'package:memory_notes/features/notes/application/todo_file_controller.dart';
 import 'package:memory_notes/features/notes/data/models.dart';
 import 'package:memory_notes/features/notes/data/repositories.dart';
@@ -6,6 +7,8 @@ import 'package:signals/signals.dart';
 
 class CategoryController {
   CategoryController(this._categoryRepo, {TodoFileController? todoFiles}) : _todoFiles = todoFiles;
+
+  static const _query = NotesQueryService();
 
   final CategoryRepository _categoryRepo;
   final TodoFileController? _todoFiles;
@@ -83,6 +86,10 @@ class CategoryController {
 
   Future<Category?> createCategory(int todoFileId, String name) async {
     try {
+      final existing = findByName(todoFileId, name);
+      if (existing != null) {
+        return existing;
+      }
       final created = await _categoryRepo.add(
         Category(name: name, todoFileId: todoFileId),
         todoFileId,
@@ -102,6 +109,14 @@ class CategoryController {
     try {
       if (category.name == name) {
         return category;
+      }
+      final duplicate = findByName(
+        category.todoFileId!,
+        name,
+        excludingId: category.id,
+      );
+      if (duplicate != null) {
+        return duplicate;
       }
       final timestamp = DateTime.now();
       final updated = await _categoryRepo.update(
@@ -123,15 +138,49 @@ class CategoryController {
     try {
       final category = categories.value.where((item) => item.id == categoryId).firstOrNull;
       await _categoryRepo.delete(categoryId);
-      categories.value = categories.value
-          .where((category) => category.id != categoryId)
-          .toList(growable: false);
+      categories.value =
+          categories.value.where((category) => category.id != categoryId).toList(growable: false);
       if (category?.todoFileId != null) {
         await _todoFiles?.touchFile(category!.todoFileId!);
       }
     } catch (e) {
       logError('CategoryController.deleteCategory: $e');
     }
+  }
+
+  Category? findByName(
+    int todoFileId,
+    String name, {
+    int? excludingId,
+  }) {
+    return _query.findCategoryByName(
+      categories.value,
+      name,
+      todoFileId: todoFileId,
+      excludingId: excludingId,
+    );
+  }
+
+  Future<Category?> moveCategoryToFile({
+    required Category category,
+    required int targetFileId,
+    DateTime? timestamp,
+  }) async {
+    final categoryId = category.id;
+    if (categoryId == null) return null;
+    final nextTimestamp = timestamp ?? DateTime.now();
+    final updated = await _categoryRepo.update(
+      category.copyWith(
+        todoFileId: targetFileId,
+        lastUpdated: nextTimestamp,
+      ),
+      targetFileId,
+    );
+    if (updated != null) {
+      _replaceCategory(updated);
+      await _todoFiles?.touchFile(targetFileId, timestamp: nextTimestamp);
+    }
+    return updated;
   }
 
   Future<Category?> getById({

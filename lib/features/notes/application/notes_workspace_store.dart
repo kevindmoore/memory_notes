@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:memory_notes/features/notes/application/category_controller.dart';
 import 'package:memory_notes/features/notes/application/notes_query_service.dart';
 import 'package:memory_notes/features/notes/application/notes_workspace_controller.dart';
@@ -14,7 +16,7 @@ import 'package:memory_notes/features/notes/models/notes_workspace_view_state.da
 class NotesWorkspaceStore {
   NotesWorkspaceStore({
     required this.workspace,
-    required this.currentState,
+    required this.deviceWorkspaceState,
     required this.query,
     required this.todoFiles,
     required this.categories,
@@ -22,11 +24,12 @@ class NotesWorkspaceStore {
   });
 
   final NotesWorkspaceController workspace;
-  final CurrentStateRepository currentState;
+  final DeviceWorkspaceStateRepository deviceWorkspaceState;
   final NotesQueryService query;
   final TodoFileController todoFiles;
   final CategoryController categories;
   final TodoController todos;
+  String? _lastPersistedWorkspaceSnapshot;
 
   NotesWorkspaceViewState buildViewState({
     required NotesSortOrder sortOrder,
@@ -45,10 +48,6 @@ class NotesWorkspaceStore {
     );
     final openFiles = query.sortFiles(
       files.where((file) => file.id != null && openFileIds.contains(file.id!)),
-      sortOrder: sortOrder,
-    );
-    final availableFiles = query.sortFiles(
-      files.where((file) => file.id == null || !openFileIds.contains(file.id!)),
       sortOrder: sortOrder,
     );
 
@@ -76,17 +75,6 @@ class NotesWorkspaceStore {
             ),
           )
           .toList(growable: false),
-      availableFileItems: availableFiles
-          .map(
-            (file) => DesktopWorkspaceFileItem(
-              file: file,
-              categoryCount:
-                  allCategories.where((category) => category.todoFileId == file.id).length,
-              isSelected: file.id == workspace.selectedFileId,
-              isOpen: false,
-            ),
-          )
-          .toList(growable: false),
       openFileIds: openFileIds,
       selectedFile: selectedFile,
       selectedCategory: selectedCategory,
@@ -103,36 +91,30 @@ class NotesWorkspaceStore {
     );
   }
 
+  List<DesktopWorkspaceFileItem> buildClosedFileItems({
+    required NotesSortOrder sortOrder,
+  }) {
+    final allFiles = todoFiles.todoFiles.value;
+    final openFileIds = query.normalizeFileIds(workspace.openFileIds.value, allFiles).toSet();
+    final files = query.sortFiles(allFiles, sortOrder: sortOrder);
+    final allCategories = categories.categories.value;
+
+    return files
+        .where((file) => file.id == null || !openFileIds.contains(file.id!))
+        .map(
+          (file) => DesktopWorkspaceFileItem(
+            file: file,
+            categoryCount: allCategories.where((category) => category.todoFileId == file.id).length,
+            isSelected: file.id == workspace.selectedFileId,
+            isOpen: false,
+          ),
+        )
+        .toList(growable: false);
+  }
+
   Future<void> initialize() async {
     await todoFiles.load();
-    final savedWorkspaceState = await currentState.getWorkspaceState();
-    final restoredFileIds = query.normalizeFileIds(
-      savedWorkspaceState.openFileIds,
-      todoFiles.todoFiles.value,
-    );
-    final validFileIds =
-        todoFiles.todoFiles.value.where((file) => file.id != null).map((file) => file.id!).toSet();
-    workspace.restoreSavedSelections({
-      for (final entry in savedWorkspaceState.selectionsByFile.entries)
-        if (validFileIds.contains(entry.key))
-          entry.key: NotesWorkspaceSelection(
-            fileId: entry.key,
-            categoryId: entry.value.categoryId,
-            todoId: entry.value.todoId,
-            todoPath: entry.value.todoPath,
-          ),
-    });
-    workspace.restoreDesktopScrollOffsets({
-      for (final entry in savedWorkspaceState.selectionsByFile.entries)
-        if (validFileIds.contains(entry.key)) entry.key: entry.value.desktopScrollOffset,
-    });
-    workspace.setOpenFileIds(restoredFileIds);
-    final restoredSelectedFileId = savedWorkspaceState.selectedFileId;
-    if (restoredSelectedFileId != null && validFileIds.contains(restoredSelectedFileId)) {
-      workspace.selectFile(restoredSelectedFileId);
-    } else if (restoredFileIds.isNotEmpty) {
-      workspace.selectFile(restoredFileIds.first);
-    }
+    await _restoreWorkspaceState();
     final fileIds =
         todoFiles.todoFiles.value.where((file) => file.id != null).map((file) => file.id!).toList();
     await categories.loadCategoriesForFiles(fileIds);
@@ -173,8 +155,6 @@ class NotesWorkspaceStore {
     if (fileId == null) return;
 
     workspace.selectFile(fileId);
-    workspace.markFileUsed(fileId);
-    await persistCurrentFiles();
     if (!categories.loadedCategoryFileIds.contains(fileId)) {
       await categories.loadCategories(fileId);
     }
@@ -202,20 +182,59 @@ class NotesWorkspaceStore {
     syncWorkspace();
   }
 
+  Future<void> openFile(TodoFile file, {bool autoSelectFirstCategory = false}) async {
+    final fileId = file.id;
+    if (fileId == null) return;
+
+    workspace.openFile(fileId);
+    workspace.markFileUsed(fileId);
+    await persistCurrentFiles();
+    await selectFile(file, autoSelectFirstCategory: autoSelectFirstCategory);
+  }
+
+  void repairEmptyOpenWorkspaceFromLoadedData({
+    NotesSortOrder sortOrder = NotesSortOrder.newest,
+  }) {
+    if (workspace.openFileIds.value.isNotEmpty) return;
+
+    final fileId = query
+        .sortFiles(
+          todoFiles.todoFiles.value.where((file) => file.id != null),
+          sortOrder: sortOrder,
+        )
+        .firstOrNull
+        ?.id;
+    if (fileId == null) return;
+
+    workspace.setOpenFileIds(<int>[fileId]);
+    workspace.selectFile(fileId);
+    syncWorkspace();
+    persistCurrentFiles();
+  }
+
   Future<void> closeFile(TodoFile file) async {
     final fileId = file.id;
     if (fileId == null) return;
 
     workspace.closeFile(fileId);
+    workspace.forgetFile(fileId);
+
     if (workspace.selectedFileId == fileId) {
       final nextOpenFileId = workspace.openFileIds.value.firstOrNull;
       if (nextOpenFileId != null) {
-        workspace.selectFile(nextOpenFileId);
+        final nextFile = query.findFileById(todoFiles.todoFiles.value, nextOpenFileId);
+        if (nextFile != null) {
+          await selectFile(nextFile);
+          await persistCurrentFiles();
+          return;
+        }
       } else {
         workspace.clearSelection();
+        await persistCurrentFiles();
+        return;
       }
     }
-    workspace.forgetFile(fileId);
+
     await persistCurrentFiles();
     syncWorkspace();
   }
@@ -350,32 +369,15 @@ class NotesWorkspaceStore {
   }
 
   Future<void> persistCurrentFiles() {
-    final fileIds = query.normalizeFileIds(workspace.openFileIds.value, todoFiles.todoFiles.value);
-    final validFileIds =
-        todoFiles.todoFiles.value.where((file) => file.id != null).map((file) => file.id!).toSet();
-    final selectionsByFile = <int, PersistedWorkspaceSelection>{};
-    final persistedFileIds = <int>{
-      ...workspace.savedSelectionsByFile.keys,
-      ...workspace.desktopScrollOffsetsByFile.keys,
-    };
-    for (final fileId in persistedFileIds) {
-      if (!validFileIds.contains(fileId)) continue;
-      final selection = workspace.savedSelectionsByFile[fileId];
-      selectionsByFile[fileId] = PersistedWorkspaceSelection(
-        categoryId: selection?.categoryId,
-        todoId: selection?.todoId,
-        todoPath: selection?.todoPath ?? const <int>[],
-        desktopScrollOffset: workspace.desktopScrollOffsetForFile(fileId),
-      );
+    final persistencePlan = _buildWorkspacePersistencePlan();
+    if (_lastPersistedWorkspaceSnapshot == persistencePlan.deviceWorkspaceSerialized) {
+      return Future.value();
     }
-    final selectedFileId =
-        workspace.selectedFileId != null && validFileIds.contains(workspace.selectedFileId)
-            ? workspace.selectedFileId
-            : null;
-    return currentState.saveWorkspaceState(
-      openFileIds: fileIds,
-      selectedFileId: selectedFileId,
-      selectionsByFile: selectionsByFile,
+    _lastPersistedWorkspaceSnapshot = persistencePlan.deviceWorkspaceSerialized;
+    return deviceWorkspaceState.saveWorkspaceState(
+      openFileIds: persistencePlan.openFileIds,
+      selectedFileId: persistencePlan.selectedFileId,
+      selectionsByFile: persistencePlan.selectionsByFile,
     );
   }
 
@@ -390,9 +392,14 @@ class NotesWorkspaceStore {
   double desktopScrollOffsetForFile(int fileId) => workspace.desktopScrollOffsetForFile(fileId);
 
   Future<TodoFile?> createList(String name) async {
+    final existing = todoFiles.findByName(name);
+    if (existing != null) {
+      await openFile(existing);
+      return existing;
+    }
     final newFile = await todoFiles.create(name);
     if (newFile != null) {
-      await selectFile(newFile);
+      await openFile(newFile);
     }
     return newFile;
   }
@@ -423,6 +430,11 @@ class NotesWorkspaceStore {
   }
 
   Future<void> renameList(TodoFile file, String name) async {
+    final duplicate = todoFiles.findByName(name, excludingId: file.id);
+    if (duplicate != null) {
+      await openFile(duplicate);
+      return;
+    }
     await todoFiles.update(file.copyWith(name: name));
     await persistCurrentFiles();
     syncWorkspace();
@@ -431,6 +443,39 @@ class NotesWorkspaceStore {
   Future<void> renameTodo(Todo todo, String name) async {
     await todos.renameTodo(todo, name);
     syncWorkspace();
+  }
+
+  Future<void> deleteTodo(Todo todo) async {
+    final fileId = todo.todoFileId;
+    final categoryId = todo.categoryId;
+    final deletedTodoId = todo.id;
+    if (fileId != null &&
+        categoryId != null &&
+        deletedTodoId != null &&
+        workspace.selectedTodoId == deletedTodoId) {
+      final allTodos = query.todosForCategory(todos.todosByCategory.value, categoryId);
+      final parentTodo = query.findTodoById(allTodos, todo.parentTodoId);
+      if (parentTodo?.id != null) {
+        workspace.selectTodo(
+          fileId: fileId,
+          categoryId: categoryId,
+          todoId: parentTodo!.id!,
+          todoPath: <int>[
+            ...query.buildAncestorTodoIds(parentTodo, allTodos),
+            parentTodo.id!,
+          ],
+        );
+      } else {
+        workspace.selectCategory(
+          fileId: fileId,
+          categoryId: categoryId,
+        );
+      }
+    }
+
+    await todos.deleteTodo(todo);
+    syncWorkspace();
+    await persistCurrentFiles();
   }
 
   Future<Todo?> addTodo({
@@ -518,4 +563,125 @@ class NotesWorkspaceStore {
 
     return true;
   }
+
+  Future<void> _restoreWorkspaceState() async {
+    final savedWorkspaceState = await deviceWorkspaceState.getWorkspaceState();
+    final allFiles = todoFiles.todoFiles.value;
+    final restoredFileIds = query.normalizeFileIds(savedWorkspaceState.openFileIds, allFiles);
+    final validFileIds = allFiles.where((file) => file.id != null).map((file) => file.id!).toSet();
+    final fallbackFileId = query
+        .sortFiles(
+          allFiles.where((file) => file.id != null),
+          sortOrder: NotesSortOrder.newest,
+        )
+        .firstOrNull
+        ?.id;
+    final openFileIds = restoredFileIds.isNotEmpty
+        ? restoredFileIds
+        : fallbackFileId == null
+            ? const <int>[]
+            : <int>[fallbackFileId];
+    workspace.restoreSavedSelections({
+      for (final entry in savedWorkspaceState.selectionsByFile.entries)
+        if (validFileIds.contains(entry.key))
+          entry.key: NotesWorkspaceSelection(
+            fileId: entry.key,
+            categoryId: entry.value.categoryId,
+            todoId: entry.value.todoId,
+            todoPath: entry.value.todoPath,
+          ),
+    });
+    workspace.restoreDesktopScrollOffsets({
+      for (final entry in savedWorkspaceState.selectionsByFile.entries)
+        if (validFileIds.contains(entry.key)) entry.key: entry.value.desktopScrollOffset,
+    });
+    workspace.setOpenFileIds(openFileIds);
+
+    final restoredSelectedFileId = savedWorkspaceState.selectedFileId;
+    if (restoredSelectedFileId != null &&
+        validFileIds.contains(restoredSelectedFileId) &&
+        openFileIds.contains(restoredSelectedFileId)) {
+      workspace.selectFile(restoredSelectedFileId);
+      await _primePersistedWorkspaceSnapshot();
+      return;
+    }
+    if (openFileIds.isNotEmpty) {
+      workspace.selectFile(openFileIds.first);
+      await _primePersistedWorkspaceSnapshot();
+      return;
+    }
+    workspace.clearSelection();
+    await _primePersistedWorkspaceSnapshot();
+  }
+
+  Future<void> _primePersistedWorkspaceSnapshot() async {
+    final persistencePlan = _buildWorkspacePersistencePlan();
+    _lastPersistedWorkspaceSnapshot = persistencePlan.deviceWorkspaceSerialized;
+    await deviceWorkspaceState.saveWorkspaceState(
+      openFileIds: persistencePlan.openFileIds,
+      selectedFileId: persistencePlan.selectedFileId,
+      selectionsByFile: persistencePlan.selectionsByFile,
+    );
+  }
+
+  _WorkspacePersistencePlan _buildWorkspacePersistencePlan() {
+    final openFileIds =
+        query.normalizeFileIds(workspace.openFileIds.value, todoFiles.todoFiles.value);
+    final validFileIds =
+        todoFiles.todoFiles.value.where((file) => file.id != null).map((file) => file.id!).toSet();
+    final selectionsByFile = <int, PersistedWorkspaceSelection>{};
+    final persistedFileIds = <int>[
+      ...{
+        ...workspace.savedSelectionsByFile.keys,
+        ...workspace.desktopScrollOffsetsByFile.keys,
+      },
+    ]..sort();
+    for (final fileId in persistedFileIds) {
+      if (!validFileIds.contains(fileId)) continue;
+      final selection = workspace.savedSelectionsByFile[fileId];
+      selectionsByFile[fileId] = PersistedWorkspaceSelection(
+        categoryId: selection?.categoryId,
+        todoId: selection?.todoId,
+        todoPath: selection?.todoPath ?? const <int>[],
+        desktopScrollOffset: workspace.desktopScrollOffsetForFile(fileId),
+      );
+    }
+    final selectedFileId =
+        workspace.selectedFileId != null && validFileIds.contains(workspace.selectedFileId)
+            ? workspace.selectedFileId
+            : null;
+    final deviceWorkspaceSerialized = jsonEncode(<String, dynamic>{
+      'openFileIds': openFileIds,
+      'selectedFileId': selectedFileId,
+      'selectionsByFile': <String, Map<String, dynamic>>{
+        for (final entry in selectionsByFile.entries)
+          '${entry.key}': <String, dynamic>{
+            if (entry.value.categoryId != null) 'categoryId': entry.value.categoryId,
+            if (entry.value.todoId != null) 'todoId': entry.value.todoId,
+            'todoPath': entry.value.todoPath,
+            'desktopScrollOffset': entry.value.desktopScrollOffset,
+          },
+      },
+    });
+    return _WorkspacePersistencePlan(
+      openFileIds: openFileIds,
+      selectedFileId: selectedFileId,
+      selectionsByFile: selectionsByFile,
+      deviceWorkspaceSerialized: deviceWorkspaceSerialized,
+    );
+  }
+}
+
+class _WorkspacePersistencePlan {
+  const _WorkspacePersistencePlan({
+    required this.openFileIds,
+    required this.selectedFileId,
+    required this.selectionsByFile,
+    required this.deviceWorkspaceSerialized,
+  });
+
+  final List<int> openFileIds;
+  final int? selectedFileId;
+  final Map<int, PersistedWorkspaceSelection> selectionsByFile;
+  final String deviceWorkspaceSerialized;
 }

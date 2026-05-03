@@ -1,10 +1,12 @@
 import 'package:lumberdash/lumberdash.dart';
+import 'package:memory_notes/features/notes/application/notes_query_service.dart';
 import 'package:memory_notes/features/notes/data/models.dart';
 import 'package:memory_notes/features/notes/data/repositories.dart';
 import 'package:signals/signals.dart';
 
 class TodoFileController {
   final TodoFileRepository _repo;
+  static const _query = NotesQueryService();
 
   TodoFileController(this._repo);
 
@@ -28,6 +30,10 @@ class TodoFileController {
 
   Future<TodoFile?> create(String name) async {
     try {
+      final existing = findByName(name);
+      if (existing != null) {
+        return existing;
+      }
       final created = await _repo.add(name);
       if (created != null) {
         todoFiles.value = [...todoFiles.value, created];
@@ -44,6 +50,10 @@ class TodoFileController {
       final current = await getById(file.id);
       if (current != null && current.name == file.name) {
         return current;
+      }
+      final duplicate = findByName(file.name, excludingId: file.id);
+      if (duplicate != null) {
+        return duplicate;
       }
       final updated = await _repo.update(
         file.copyWith(lastUpdated: DateTime.now()),
@@ -66,6 +76,10 @@ class TodoFileController {
     }
     final allFiles = await _repo.getAll();
     return allFiles.where((file) => file.id == id).firstOrNull;
+  }
+
+  TodoFile? findByName(String name, {int? excludingId}) {
+    return _query.findFileByName(todoFiles.value, name, excludingId: excludingId);
   }
 
   Future<TodoFile?> touchFile(

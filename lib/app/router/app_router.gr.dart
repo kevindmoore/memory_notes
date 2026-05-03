@@ -340,6 +340,7 @@ class SearchRoute extends PageRouteInfo<SearchRouteArgs> {
   SearchRoute({
     required SearchStore search,
     required NotesMobileStore notesMobile,
+    required NotesWorkspaceStore notesWorkspace,
     required NoteDetailActions noteDetailActions,
     required NoteEditActions noteEditActions,
     required SpeechController speech,
@@ -350,6 +351,7 @@ class SearchRoute extends PageRouteInfo<SearchRouteArgs> {
          args: SearchRouteArgs(
            search: search,
            notesMobile: notesMobile,
+           notesWorkspace: notesWorkspace,
            noteDetailActions: noteDetailActions,
            noteEditActions: noteEditActions,
            speech: speech,
@@ -367,6 +369,7 @@ class SearchRoute extends PageRouteInfo<SearchRouteArgs> {
       return SearchScreen(
         search: args.search,
         notesMobile: args.notesMobile,
+        notesWorkspace: args.notesWorkspace,
         noteDetailActions: args.noteDetailActions,
         noteEditActions: args.noteEditActions,
         speech: args.speech,
@@ -380,6 +383,7 @@ class SearchRouteArgs {
   const SearchRouteArgs({
     required this.search,
     required this.notesMobile,
+    required this.notesWorkspace,
     required this.noteDetailActions,
     required this.noteEditActions,
     required this.speech,
@@ -389,6 +393,8 @@ class SearchRouteArgs {
   final SearchStore search;
 
   final NotesMobileStore notesMobile;
+
+  final NotesWorkspaceStore notesWorkspace;
 
   final NoteDetailActions noteDetailActions;
 
@@ -400,7 +406,7 @@ class SearchRouteArgs {
 
   @override
   String toString() {
-    return 'SearchRouteArgs{search: $search, notesMobile: $notesMobile, noteDetailActions: $noteDetailActions, noteEditActions: $noteEditActions, speech: $speech, key: $key}';
+    return 'SearchRouteArgs{search: $search, notesMobile: $notesMobile, notesWorkspace: $notesWorkspace, noteDetailActions: $noteDetailActions, noteEditActions: $noteEditActions, speech: $speech, key: $key}';
   }
 }
 

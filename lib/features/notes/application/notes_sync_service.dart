@@ -47,7 +47,7 @@ class NotesSyncService {
   Timer? _recoveryRetryTimer;
 
   bool _initialized = false;
-  bool _hasNetworkConnection = true;
+  bool _connectivityHintOnline = true;
   bool _recoveryReloadInFlight = false;
   DateTime? _lastRecoveryReloadAt;
 
@@ -78,7 +78,7 @@ class NotesSyncService {
       _scheduleRecoveryRetry(reason: 'todo stream error');
     });
 
-    _hasNetworkConnection = hasNetworkConnection(await connectivity.checkConnectivity());
+    _connectivityHintOnline = hasNetworkConnection(await connectivity.checkConnectivity());
     _connectivitySubscription =
         connectivity.onConnectivityChanged.listen(_handleConnectivityChanged, onError: (error) {
       logError('NotesSyncService connectivity stream error: $error');
@@ -290,8 +290,8 @@ class NotesSyncService {
 
   Future<void> _handleConnectivityChanged(List<ConnectivityResult> results) async {
     final nextHasNetworkConnection = hasNetworkConnection(results);
-    final hadNetworkConnection = _hasNetworkConnection;
-    _hasNetworkConnection = nextHasNetworkConnection;
+    final hadNetworkConnection = _connectivityHintOnline;
+    _connectivityHintOnline = nextHasNetworkConnection;
 
     if (!hadNetworkConnection && nextHasNetworkConnection) {
       await _performRecoveryReload(reason: 'connectivity restored');
@@ -299,7 +299,10 @@ class NotesSyncService {
     }
 
     if (!nextHasNetworkConnection) {
-      logMessage('NotesSyncService connectivity hint: offline');
+      logMessage(
+        'NotesSyncService connectivity hint reported no network; waiting for a real backend probe before treating this as offline',
+      );
+      _scheduleRecoveryRetry(reason: 'connectivity hint reported offline');
       return;
     }
 
@@ -319,12 +322,7 @@ class NotesSyncService {
       return;
     }
 
-    final hasConnectionHint = hasNetworkConnection(await connectivity.checkConnectivity());
-    _hasNetworkConnection = hasConnectionHint;
-    if (!hasConnectionHint) {
-      logMessage('NotesSyncService recovery reload skipped: no local connection hint ($reason)');
-      return;
-    }
+    _connectivityHintOnline = hasNetworkConnection(await connectivity.checkConnectivity());
 
     final backendReachable = await _canReachBackend();
     if (!backendReachable) {

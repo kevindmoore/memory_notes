@@ -1,6 +1,8 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:lumberdash/lumberdash.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supa_manager/supa_manager.dart';
 
 import 'models.dart';
@@ -22,10 +24,10 @@ class TodoFileRepository {
         return data;
       case Failure(error: final error):
         logError('TodoFileRepository.getAll: $error');
-        return [];
+        throw error;
       case ErrorMessage(message: final message, code: _):
         logError('TodoFileRepository.getAll: $message');
-        return [];
+        throw StateError(message ?? 'Todo file read failed');
     }
   }
 
@@ -95,10 +97,10 @@ class CategoryRepository {
         return data;
       case Failure(error: final error):
         logError('CategoryRepository.getByTodoFile: $error');
-        return [];
+        throw error;
       case ErrorMessage(message: final message, code: _):
         logError('CategoryRepository.getByTodoFile: $message');
-        return [];
+        throw StateError(message ?? 'Category read failed');
     }
   }
 
@@ -169,10 +171,10 @@ class TodoRepository {
         return sorted;
       case Failure(error: final error):
         logError('TodoRepository.getByCategory: $error');
-        return [];
+        throw error;
       case ErrorMessage(message: final message, code: _):
         logError('TodoRepository.getByCategory: $message');
-        return [];
+        throw StateError(message ?? 'Todo read failed');
     }
   }
 
@@ -260,16 +262,61 @@ class CurrentStateRepository {
   static const _workspaceStateVersion = 2;
 
   Future<CurrentState?> getCurrentState() async {
-    final result = await _db.readEntries(_tableData);
+    final currentUserId = _db.client.auth.currentUser?.id;
+    if (currentUserId == null) {
+      return null;
+    }
+
+    final result = await _db.readEntriesWhere(
+      _tableData,
+      userIdFieldName,
+      currentUserId,
+    );
     switch (result) {
       case Success(data: final data):
-        return data.firstOrNull;
+        return selectLatestCurrentState(
+          data,
+          currentUserId: currentUserId,
+        );
       case Failure(error: final error):
         logError('CurrentStateRepository.getCurrentState: $error');
       case ErrorMessage(message: final message, code: _):
         logError('CurrentStateRepository.getCurrentState: $message');
     }
     return null;
+  }
+
+  @visibleForTesting
+  static CurrentState? selectLatestCurrentState(
+    List<CurrentState> states, {
+    String? currentUserId,
+  }) {
+    final statesForCurrentUser = currentUserId == null
+        ? states
+        : states.where((state) => state.userId == currentUserId).toList(growable: false);
+    if (statesForCurrentUser.isEmpty) {
+      return null;
+    }
+
+    final sortedStates = List<CurrentState>.from(statesForCurrentUser)
+      ..sort((a, b) {
+        final lastUpdatedComparison = _compareCurrentStateTimestamps(
+          b.lastUpdated,
+          a.lastUpdated,
+        );
+        if (lastUpdatedComparison != 0) {
+          return lastUpdatedComparison;
+        }
+        return (b.id ?? 0).compareTo(a.id ?? 0);
+      });
+    return sortedStates.first;
+  }
+
+  static int _compareCurrentStateTimestamps(DateTime? left, DateTime? right) {
+    if (left == null && right == null) return 0;
+    if (left == null) return -1;
+    if (right == null) return 1;
+    return left.compareTo(right);
   }
 
   Future<PersistedWorkspaceState> getWorkspaceState() async {
@@ -320,33 +367,9 @@ class CurrentStateRepository {
   }
 
   Future<void> saveCurrentFileIds(List<int> fileIds) async {
-    final existingState = await getWorkspaceState();
-    await saveWorkspaceState(
-      openFileIds: fileIds,
-      selectedFileId: existingState.selectedFileId,
-      selectionsByFile: existingState.selectionsByFile,
-    );
-  }
-
-  Future<void> saveWorkspaceState({
-    required List<int> openFileIds,
-    required int? selectedFileId,
-    required Map<int, PersistedWorkspaceSelection> selectionsByFile,
-  }) async {
-    final normalizedSelections = <String, Map<String, dynamic>>{};
-    for (final entry in selectionsByFile.entries) {
-      normalizedSelections['${entry.key}'] = <String, dynamic>{
-        if (entry.value.categoryId != null) 'categoryId': entry.value.categoryId,
-        if (entry.value.todoId != null) 'todoId': entry.value.todoId,
-        'todoPath': entry.value.todoPath,
-        'desktopScrollOffset': entry.value.desktopScrollOffset,
-      };
-    }
     final filesString = jsonEncode(<String, dynamic>{
       'version': _workspaceStateVersion,
-      'openFileIds': openFileIds,
-      if (selectedFileId != null) 'selectedFileId': selectedFileId,
-      'selectionsByFile': normalizedSelections,
+      'openFileIds': fileIds,
     });
     final currentState = await getCurrentState();
 
@@ -384,34 +407,115 @@ class CurrentStateRepository {
         logError('CurrentStateRepository.saveCurrentFileIds update: $message');
     }
   }
+}
 
-  static int? _parseInt(Object? value) {
-    if (value is int) return value;
-    if (value is String) return int.tryParse(value);
-    return null;
+class DeviceWorkspaceStateRepository {
+  DeviceWorkspaceStateRepository({
+    required String? Function() currentUserId,
+    SharedPreferences? prefs,
+  })  : _currentUserId = currentUserId,
+        _prefs = prefs;
+
+  final String? Function() _currentUserId;
+  SharedPreferences? _prefs;
+
+  static const _workspaceStateVersion = 2;
+  static const _storageKeyPrefix = 'device_workspace_state';
+
+  Future<PersistedWorkspaceState> getWorkspaceState() async {
+    final prefs = await _instance;
+    final rawValue = prefs.getString(_storageKey);
+    if (rawValue == null || rawValue.trim().isEmpty) {
+      return const PersistedWorkspaceState();
+    }
+
+    try {
+      final decoded = jsonDecode(rawValue);
+      if (decoded is! Map<String, dynamic>) {
+        throw const FormatException('Workspace state is not a JSON object.');
+      }
+
+      final openFileIds = _parseIntList(decoded['openFileIds']);
+      final selectedFileId = _parseInt(decoded['selectedFileId']);
+      final rawSelections = decoded['selectionsByFile'];
+      final selectionsByFile = <int, PersistedWorkspaceSelection>{};
+      if (rawSelections is Map<String, dynamic>) {
+        for (final entry in rawSelections.entries) {
+          final fileId = int.tryParse(entry.key);
+          final selection = _parseSelection(entry.value);
+          if (fileId == null || selection == null) continue;
+          selectionsByFile[fileId] = selection;
+        }
+      }
+
+      return PersistedWorkspaceState(
+        openFileIds: openFileIds,
+        selectedFileId: selectedFileId,
+        selectionsByFile: selectionsByFile,
+      );
+    } catch (_) {
+      return const PersistedWorkspaceState();
+    }
   }
 
-  static List<int> _parseIntList(Object? value) {
-    if (value is! List) return const <int>[];
-    return value.map(_parseInt).whereType<int>().toList(growable: false);
+  Future<void> saveWorkspaceState({
+    required List<int> openFileIds,
+    required int? selectedFileId,
+    required Map<int, PersistedWorkspaceSelection> selectionsByFile,
+  }) async {
+    final prefs = await _instance;
+    final normalizedSelections = <String, Map<String, dynamic>>{};
+    for (final entry in selectionsByFile.entries) {
+      normalizedSelections['${entry.key}'] = <String, dynamic>{
+        if (entry.value.categoryId != null) 'categoryId': entry.value.categoryId,
+        if (entry.value.todoId != null) 'todoId': entry.value.todoId,
+        'todoPath': entry.value.todoPath,
+        'desktopScrollOffset': entry.value.desktopScrollOffset,
+      };
+    }
+    final filesString = jsonEncode(<String, dynamic>{
+      'version': _workspaceStateVersion,
+      'openFileIds': openFileIds,
+      if (selectedFileId != null) 'selectedFileId': selectedFileId,
+      'selectionsByFile': normalizedSelections,
+    });
+    await prefs.setString(_storageKey, filesString);
   }
 
-  static PersistedWorkspaceSelection? _parseSelection(Object? value) {
-    if (value is! Map<String, dynamic>) return null;
-    final todoPath = _parseIntList(value['todoPath']);
-    final todoId = _parseInt(value['todoId']) ?? (todoPath.isEmpty ? null : todoPath.last);
-    return PersistedWorkspaceSelection(
-      categoryId: _parseInt(value['categoryId']),
-      todoId: todoId,
-      todoPath: todoPath,
-      desktopScrollOffset: _parseDouble(value['desktopScrollOffset']) ?? 0,
-    );
-  }
+  Future<SharedPreferences> get _instance async => _prefs ??= await SharedPreferences.getInstance();
 
-  static double? _parseDouble(Object? value) {
-    if (value is double) return value;
-    if (value is int) return value.toDouble();
-    if (value is String) return double.tryParse(value);
-    return null;
+  String get _storageKey {
+    final userId = _currentUserId();
+    return userId == null ? _storageKeyPrefix : '${_storageKeyPrefix}_$userId';
   }
+}
+
+int? _parseInt(Object? value) {
+  if (value is int) return value;
+  if (value is String) return int.tryParse(value);
+  return null;
+}
+
+List<int> _parseIntList(Object? value) {
+  if (value is! List) return const <int>[];
+  return value.map(_parseInt).whereType<int>().toList(growable: false);
+}
+
+PersistedWorkspaceSelection? _parseSelection(Object? value) {
+  if (value is! Map<String, dynamic>) return null;
+  final todoPath = _parseIntList(value['todoPath']);
+  final todoId = _parseInt(value['todoId']) ?? (todoPath.isEmpty ? null : todoPath.last);
+  return PersistedWorkspaceSelection(
+    categoryId: _parseInt(value['categoryId']),
+    todoId: todoId,
+    todoPath: todoPath,
+    desktopScrollOffset: _parseDouble(value['desktopScrollOffset']) ?? 0,
+  );
+}
+
+double? _parseDouble(Object? value) {
+  if (value is double) return value;
+  if (value is int) return value.toDouble();
+  if (value is String) return double.tryParse(value);
+  return null;
 }

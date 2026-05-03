@@ -5,17 +5,22 @@ import 'package:memory_notes/features/notes/models/notes_workspace_selection.dar
 
 void main() {
   group('NotesWorkspaceController', () {
-    test('selectFile opens the file and clears category/todo selection', () {
+    test('selectFile can update selection without opening the file', () {
       final controller = NotesWorkspaceController();
 
-      controller.selectCategory(fileId: 1, categoryId: 10, todoId: 100);
+      controller.openCategory(
+        fileId: 1,
+        categoryId: 10,
+        todoId: 100,
+      );
       controller.selectFile(2);
 
       expect(controller.selectedFileId, 2);
       expect(controller.selectedCategoryId, isNull);
       expect(controller.selectedTodoId, isNull);
       expect(controller.selectedTodoPath, isEmpty);
-      expect(controller.openFileIds.value, contains(2));
+      expect(controller.openFileIds.value, contains(1));
+      expect(controller.openFileIds.value, isNot(contains(2)));
     });
 
     test('markFileUsed moves an open file to the front of the MRU list', () {
@@ -31,7 +36,7 @@ void main() {
       final controller = NotesWorkspaceController();
 
       controller.setOpenFileIds(const [1, 2, 3]);
-      controller.selectCategory(fileId: 2, categoryId: 20);
+      controller.openCategory(fileId: 2, categoryId: 20);
 
       controller.syncWithData(
         files: const [
@@ -75,7 +80,7 @@ void main() {
       expect(controller.selectedTodoPath, [100, 101]);
     });
 
-    test('syncWithData auto-selects the first file when none is selected', () {
+    test('syncWithData keeps selection empty when no files are open', () {
       final controller = NotesWorkspaceController();
 
       controller.syncWithData(
@@ -87,8 +92,25 @@ void main() {
         todosByCategory: const {},
       );
 
-      expect(controller.selectedFileId, 7);
-      expect(controller.openFileIds.value, contains(7));
+      expect(controller.selectedFileId, isNull);
+      expect(controller.openFileIds.value, isEmpty);
+    });
+
+    test('syncWithData auto-selects the first open file when none is selected', () {
+      final controller = NotesWorkspaceController();
+      controller.setOpenFileIds(const [8, 7]);
+
+      controller.syncWithData(
+        files: const [
+          TodoFile(id: 7, name: 'Primary'),
+          TodoFile(id: 8, name: 'Secondary'),
+        ],
+        categories: const [],
+        todosByCategory: const {},
+      );
+
+      expect(controller.selectedFileId, 8);
+      expect(controller.openFileIds.value, [8, 7]);
     });
 
     test('syncWithData auto-selects the first category for the selected file', () {
@@ -110,7 +132,7 @@ void main() {
 
       expect(controller.selectedFileId, 7);
       expect(controller.selectedCategoryId, 70);
-      expect(controller.openFileIds.value, contains(7));
+      expect(controller.openFileIds.value, isEmpty);
     });
 
     test('selectFile restores the saved category and todo path for that file', () {

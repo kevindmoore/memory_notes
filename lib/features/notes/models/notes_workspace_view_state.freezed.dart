@@ -17,7 +17,6 @@ mixin _$NotesWorkspaceViewState {
   List<TodoFile> get files;
   List<DesktopWorkspaceFileItem> get fileItems;
   List<DesktopWorkspaceFileItem> get openFileItems;
-  List<DesktopWorkspaceFileItem> get availableFileItems;
   List<int> get openFileIds;
   TodoFile? get selectedFile;
   Category? get selectedCategory;
@@ -44,8 +43,6 @@ mixin _$NotesWorkspaceViewState {
             const DeepCollectionEquality()
                 .equals(other.openFileItems, openFileItems) &&
             const DeepCollectionEquality()
-                .equals(other.availableFileItems, availableFileItems) &&
-            const DeepCollectionEquality()
                 .equals(other.openFileIds, openFileIds) &&
             (identical(other.selectedFile, selectedFile) ||
                 other.selectedFile == selectedFile) &&
@@ -66,7 +63,6 @@ mixin _$NotesWorkspaceViewState {
       const DeepCollectionEquality().hash(files),
       const DeepCollectionEquality().hash(fileItems),
       const DeepCollectionEquality().hash(openFileItems),
-      const DeepCollectionEquality().hash(availableFileItems),
       const DeepCollectionEquality().hash(openFileIds),
       selectedFile,
       selectedCategory,
@@ -77,7 +73,7 @@ mixin _$NotesWorkspaceViewState {
 
   @override
   String toString() {
-    return 'NotesWorkspaceViewState(files: $files, fileItems: $fileItems, openFileItems: $openFileItems, availableFileItems: $availableFileItems, openFileIds: $openFileIds, selectedFile: $selectedFile, selectedCategory: $selectedCategory, categories: $categories, todos: $todos, selectedTodo: $selectedTodo, selectedTodoPath: $selectedTodoPath)';
+    return 'NotesWorkspaceViewState(files: $files, fileItems: $fileItems, openFileItems: $openFileItems, openFileIds: $openFileIds, selectedFile: $selectedFile, selectedCategory: $selectedCategory, categories: $categories, todos: $todos, selectedTodo: $selectedTodo, selectedTodoPath: $selectedTodoPath)';
   }
 }
 
@@ -91,7 +87,6 @@ abstract mixin class $NotesWorkspaceViewStateCopyWith<$Res> {
       {List<TodoFile> files,
       List<DesktopWorkspaceFileItem> fileItems,
       List<DesktopWorkspaceFileItem> openFileItems,
-      List<DesktopWorkspaceFileItem> availableFileItems,
       List<int> openFileIds,
       TodoFile? selectedFile,
       Category? selectedCategory,
@@ -121,7 +116,6 @@ class _$NotesWorkspaceViewStateCopyWithImpl<$Res>
     Object? files = null,
     Object? fileItems = null,
     Object? openFileItems = null,
-    Object? availableFileItems = null,
     Object? openFileIds = null,
     Object? selectedFile = freezed,
     Object? selectedCategory = freezed,
@@ -142,10 +136,6 @@ class _$NotesWorkspaceViewStateCopyWithImpl<$Res>
       openFileItems: null == openFileItems
           ? _self.openFileItems
           : openFileItems // ignore: cast_nullable_to_non_nullable
-              as List<DesktopWorkspaceFileItem>,
-      availableFileItems: null == availableFileItems
-          ? _self.availableFileItems
-          : availableFileItems // ignore: cast_nullable_to_non_nullable
               as List<DesktopWorkspaceFileItem>,
       openFileIds: null == openFileIds
           ? _self.openFileIds
@@ -318,7 +308,6 @@ extension NotesWorkspaceViewStatePatterns on NotesWorkspaceViewState {
             List<TodoFile> files,
             List<DesktopWorkspaceFileItem> fileItems,
             List<DesktopWorkspaceFileItem> openFileItems,
-            List<DesktopWorkspaceFileItem> availableFileItems,
             List<int> openFileIds,
             TodoFile? selectedFile,
             Category? selectedCategory,
@@ -336,7 +325,6 @@ extension NotesWorkspaceViewStatePatterns on NotesWorkspaceViewState {
             _that.files,
             _that.fileItems,
             _that.openFileItems,
-            _that.availableFileItems,
             _that.openFileIds,
             _that.selectedFile,
             _that.selectedCategory,
@@ -368,7 +356,6 @@ extension NotesWorkspaceViewStatePatterns on NotesWorkspaceViewState {
             List<TodoFile> files,
             List<DesktopWorkspaceFileItem> fileItems,
             List<DesktopWorkspaceFileItem> openFileItems,
-            List<DesktopWorkspaceFileItem> availableFileItems,
             List<int> openFileIds,
             TodoFile? selectedFile,
             Category? selectedCategory,
@@ -385,7 +372,6 @@ extension NotesWorkspaceViewStatePatterns on NotesWorkspaceViewState {
             _that.files,
             _that.fileItems,
             _that.openFileItems,
-            _that.availableFileItems,
             _that.openFileIds,
             _that.selectedFile,
             _that.selectedCategory,
@@ -416,7 +402,6 @@ extension NotesWorkspaceViewStatePatterns on NotesWorkspaceViewState {
             List<TodoFile> files,
             List<DesktopWorkspaceFileItem> fileItems,
             List<DesktopWorkspaceFileItem> openFileItems,
-            List<DesktopWorkspaceFileItem> availableFileItems,
             List<int> openFileIds,
             TodoFile? selectedFile,
             Category? selectedCategory,
@@ -433,7 +418,6 @@ extension NotesWorkspaceViewStatePatterns on NotesWorkspaceViewState {
             _that.files,
             _that.fileItems,
             _that.openFileItems,
-            _that.availableFileItems,
             _that.openFileIds,
             _that.selectedFile,
             _that.selectedCategory,
@@ -456,8 +440,6 @@ class _NotesWorkspaceViewState implements NotesWorkspaceViewState {
           const <DesktopWorkspaceFileItem>[],
       final List<DesktopWorkspaceFileItem> openFileItems =
           const <DesktopWorkspaceFileItem>[],
-      final List<DesktopWorkspaceFileItem> availableFileItems =
-          const <DesktopWorkspaceFileItem>[],
       final List<int> openFileIds = const <int>[],
       this.selectedFile,
       this.selectedCategory,
@@ -468,7 +450,6 @@ class _NotesWorkspaceViewState implements NotesWorkspaceViewState {
       : _files = files,
         _fileItems = fileItems,
         _openFileItems = openFileItems,
-        _availableFileItems = availableFileItems,
         _openFileIds = openFileIds,
         _categories = categories,
         _todos = todos,
@@ -499,16 +480,6 @@ class _NotesWorkspaceViewState implements NotesWorkspaceViewState {
     if (_openFileItems is EqualUnmodifiableListView) return _openFileItems;
     // ignore: implicit_dynamic_type
     return EqualUnmodifiableListView(_openFileItems);
-  }
-
-  final List<DesktopWorkspaceFileItem> _availableFileItems;
-  @override
-  @JsonKey()
-  List<DesktopWorkspaceFileItem> get availableFileItems {
-    if (_availableFileItems is EqualUnmodifiableListView)
-      return _availableFileItems;
-    // ignore: implicit_dynamic_type
-    return EqualUnmodifiableListView(_availableFileItems);
   }
 
   final List<int> _openFileIds;
@@ -574,8 +545,6 @@ class _NotesWorkspaceViewState implements NotesWorkspaceViewState {
             const DeepCollectionEquality()
                 .equals(other._openFileItems, _openFileItems) &&
             const DeepCollectionEquality()
-                .equals(other._availableFileItems, _availableFileItems) &&
-            const DeepCollectionEquality()
                 .equals(other._openFileIds, _openFileIds) &&
             (identical(other.selectedFile, selectedFile) ||
                 other.selectedFile == selectedFile) &&
@@ -596,7 +565,6 @@ class _NotesWorkspaceViewState implements NotesWorkspaceViewState {
       const DeepCollectionEquality().hash(_files),
       const DeepCollectionEquality().hash(_fileItems),
       const DeepCollectionEquality().hash(_openFileItems),
-      const DeepCollectionEquality().hash(_availableFileItems),
       const DeepCollectionEquality().hash(_openFileIds),
       selectedFile,
       selectedCategory,
@@ -607,7 +575,7 @@ class _NotesWorkspaceViewState implements NotesWorkspaceViewState {
 
   @override
   String toString() {
-    return 'NotesWorkspaceViewState(files: $files, fileItems: $fileItems, openFileItems: $openFileItems, availableFileItems: $availableFileItems, openFileIds: $openFileIds, selectedFile: $selectedFile, selectedCategory: $selectedCategory, categories: $categories, todos: $todos, selectedTodo: $selectedTodo, selectedTodoPath: $selectedTodoPath)';
+    return 'NotesWorkspaceViewState(files: $files, fileItems: $fileItems, openFileItems: $openFileItems, openFileIds: $openFileIds, selectedFile: $selectedFile, selectedCategory: $selectedCategory, categories: $categories, todos: $todos, selectedTodo: $selectedTodo, selectedTodoPath: $selectedTodoPath)';
   }
 }
 
@@ -623,7 +591,6 @@ abstract mixin class _$NotesWorkspaceViewStateCopyWith<$Res>
       {List<TodoFile> files,
       List<DesktopWorkspaceFileItem> fileItems,
       List<DesktopWorkspaceFileItem> openFileItems,
-      List<DesktopWorkspaceFileItem> availableFileItems,
       List<int> openFileIds,
       TodoFile? selectedFile,
       Category? selectedCategory,
@@ -656,7 +623,6 @@ class __$NotesWorkspaceViewStateCopyWithImpl<$Res>
     Object? files = null,
     Object? fileItems = null,
     Object? openFileItems = null,
-    Object? availableFileItems = null,
     Object? openFileIds = null,
     Object? selectedFile = freezed,
     Object? selectedCategory = freezed,
@@ -677,10 +643,6 @@ class __$NotesWorkspaceViewStateCopyWithImpl<$Res>
       openFileItems: null == openFileItems
           ? _self._openFileItems
           : openFileItems // ignore: cast_nullable_to_non_nullable
-              as List<DesktopWorkspaceFileItem>,
-      availableFileItems: null == availableFileItems
-          ? _self._availableFileItems
-          : availableFileItems // ignore: cast_nullable_to_non_nullable
               as List<DesktopWorkspaceFileItem>,
       openFileIds: null == openFileIds
           ? _self._openFileIds

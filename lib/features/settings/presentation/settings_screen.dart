@@ -1,6 +1,7 @@
 import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
 import 'package:memory_notes/app/router/app_router.dart';
+import 'package:memory_notes/core/services/app_services.dart';
 import 'package:memory_notes/core/theme/app_theme.dart';
 import 'package:memory_notes/features/auth/application/auth_controller.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -20,6 +21,7 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   String _version = '';
+  bool _isMergingDuplicates = false;
 
   @override
   void initState() {
@@ -31,10 +33,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final profileSubtitle =
-        widget.auth.userName?.trim().isNotEmpty == true
-            ? widget.auth.userName!.trim()
-            : (widget.auth.userEmail ?? 'Unknown');
+    final profileSubtitle = widget.auth.userName?.trim().isNotEmpty == true
+        ? widget.auth.userName!.trim()
+        : (widget.auth.userEmail ?? 'Unknown');
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -55,6 +56,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     icon: Icons.person_outline_rounded,
                     title: 'Profile',
                     subtitle: profileSubtitle,
+                  ),
+                  const SizedBox(height: 16),
+                  const _SectionHeader('Data'),
+                  _SettingsTile(
+                    icon: Icons.merge_type_rounded,
+                    title: 'Merge Duplicate Lists',
+                    subtitle: _isMergingDuplicates
+                        ? 'Scanning all of your lists...'
+                        : 'Scan all lists for this account and merge duplicates',
+                    trailing: _isMergingDuplicates
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : null,
+                    onTap: _isMergingDuplicates ? null : _handleMergeDuplicateLists,
                   ),
                   const SizedBox(height: 16),
                   const _SectionHeader('About'),
@@ -82,6 +100,56 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handleMergeDuplicateLists() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: const Text(
+          'Merge Duplicate Lists?',
+          style: TextStyle(color: AppColors.textPrimary),
+        ),
+        content: const Text(
+          'This scans every list for the current account and merges lists that share the same name. '
+          'Categories with matching names will be merged, and todos with the same name are preserved even if they live in different paths.',
+          style: TextStyle(color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Merge'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _isMergingDuplicates = true);
+    final services = AppServices.instance;
+    final result = await services.notesMerge.mergeDuplicateLists();
+    await services.notesWorkspace.reloadAllFiles();
+
+    if (!mounted) return;
+    setState(() => _isMergingDuplicates = false);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          result.didMerge
+              ? 'Merged ${result.mergedListCount} duplicate list'
+                  '${result.mergedListCount == 1 ? '' : 's'} '
+                  'and ${result.mergedCategoryCount} categor'
+                  '${result.mergedCategoryCount == 1 ? 'y' : 'ies'}.'
+              : 'No duplicate lists were found for this account.',
         ),
       ),
     );
@@ -117,6 +185,7 @@ class _SettingsTile extends StatelessWidget {
   final VoidCallback? onTap;
   final Color titleColor;
   final Color iconColor;
+  final Widget? trailing;
 
   const _SettingsTile({
     required this.icon,
@@ -125,6 +194,7 @@ class _SettingsTile extends StatelessWidget {
     this.onTap,
     this.titleColor = AppColors.textPrimary,
     this.iconColor = AppColors.textSecondary,
+    this.trailing,
   });
 
   @override
@@ -162,7 +232,9 @@ class _SettingsTile extends StatelessWidget {
                     ],
                   ),
                 ),
-                if (onTap != null)
+                if (trailing != null)
+                  trailing!
+                else if (onTap != null)
                   const Icon(Icons.chevron_right_rounded, color: AppColors.textDisabled, size: 18),
               ],
             ),
