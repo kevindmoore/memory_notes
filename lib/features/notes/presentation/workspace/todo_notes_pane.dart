@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:memory_notes/core/theme/app_theme.dart';
 import 'package:memory_notes/features/notes/data/models.dart';
 import 'package:memory_notes/features/speech/application/speech_controller.dart';
@@ -12,11 +13,13 @@ class DesktopTodoNotesPane extends StatefulWidget {
   const DesktopTodoNotesPane({
     super.key,
     required this.todo,
+    required this.focusRequestId,
     required this.onSave,
     required this.speech,
   });
 
   final Todo? todo;
+  final int focusRequestId;
   final Future<void> Function(Todo todo, String notes) onSave;
   final SpeechController speech;
 
@@ -24,16 +27,19 @@ class DesktopTodoNotesPane extends StatefulWidget {
   State<DesktopTodoNotesPane> createState() => _DesktopTodoNotesPaneState();
 }
 
-class _DesktopTodoNotesPaneState extends State<DesktopTodoNotesPane> {
+class _DesktopTodoNotesPaneState extends State<DesktopTodoNotesPane> with WidgetsBindingObserver {
   final _controller = TextEditingController();
   final _focusNode = FocusNode();
   Timer? _saveTimer;
   String _lastSavedNotes = '';
   bool _isSaving = false;
+  bool _showPreview = false;
+  bool _restoreFocusOnResume = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _syncFromTodo();
     _focusNode.addListener(_handleFocusChange);
   }
@@ -41,10 +47,19 @@ class _DesktopTodoNotesPaneState extends State<DesktopTodoNotesPane> {
   @override
   void didUpdateWidget(covariant DesktopTodoNotesPane oldWidget) {
     super.didUpdateWidget(oldWidget);
+    final shouldFocusNotes =
+        oldWidget.focusRequestId != widget.focusRequestId && widget.todo != null;
     if (oldWidget.todo?.id != widget.todo?.id) {
       _saveTimer?.cancel();
       _syncFromTodo();
+      if (shouldFocusNotes) {
+        _requestNotesFocus();
+      }
       return;
+    }
+
+    if (shouldFocusNotes) {
+      _requestNotesFocus();
     }
 
     final nextTodo = widget.todo;
@@ -62,9 +77,27 @@ class _DesktopTodoNotesPaneState extends State<DesktopTodoNotesPane> {
   void dispose() {
     _saveTimer?.cancel();
     _focusNode.removeListener(_handleFocusChange);
+    WidgetsBinding.instance.removeObserver(this);
     _focusNode.dispose();
     _controller.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed) {
+      if (_restoreFocusOnResume && !_showPreview) {
+        _requestNotesFocus();
+      }
+      return;
+    }
+
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused) {
+      _restoreFocusOnResume = _restoreFocusOnResume || _focusNode.hasFocus;
+    }
   }
 
   @override
@@ -127,25 +160,35 @@ class _DesktopTodoNotesPaneState extends State<DesktopTodoNotesPane> {
                           controller: _controller,
                           speech: widget.speech,
                         ),
+                        IconButton(
+                          onPressed: _togglePreview,
+                          icon: Icon(
+                            _showPreview ? Icons.edit_outlined : Icons.visibility_outlined,
+                            color: AppColors.textSecondary,
+                          ),
+                          tooltip: _showPreview ? 'Edit markdown' : 'Preview markdown',
+                        ),
                       ],
                     ),
                   ),
                   const SizedBox(height: 16),
                   Expanded(
-                    child: TextField(
-                      controller: _controller,
-                      focusNode: _focusNode,
-                      textCapitalization: TextCapitalization.sentences,
-                      maxLines: null,
-                      expands: true,
-                      textAlignVertical: TextAlignVertical.top,
-                      style: const TextStyle(color: AppColors.textPrimary),
-                      decoration: const InputDecoration(
-                        hintText: 'Write notes for this task...',
-                        alignLabelWithHint: true,
-                      ),
-                      onChanged: (_) => _scheduleAutosave(),
-                    ),
+                    child: _showPreview
+                        ? _buildMarkdownPreview(context)
+                        : TextField(
+                            controller: _controller,
+                            focusNode: _focusNode,
+                            textCapitalization: TextCapitalization.sentences,
+                            maxLines: null,
+                            expands: true,
+                            textAlignVertical: TextAlignVertical.top,
+                            style: const TextStyle(color: AppColors.textPrimary),
+                            decoration: const InputDecoration(
+                              hintText: 'Write notes for this task...',
+                              alignLabelWithHint: true,
+                            ),
+                            onChanged: (_) => _scheduleAutosave(),
+                          ),
                   ),
                 ],
               ),
@@ -154,6 +197,11 @@ class _DesktopTodoNotesPaneState extends State<DesktopTodoNotesPane> {
   }
 
   void _handleFocusChange() {
+    if (_focusNode.hasFocus) {
+      _restoreFocusOnResume = true;
+      return;
+    }
+
     if (!_focusNode.hasFocus) {
       unawaited(_flushSave());
     }
@@ -201,6 +249,77 @@ class _DesktopTodoNotesPaneState extends State<DesktopTodoNotesPane> {
     _controller.value = TextEditingValue(
       text: notes,
       selection: TextSelection.collapsed(offset: notes.length),
+    );
+  }
+
+  void _requestNotesFocus() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || widget.todo == null) return;
+      _focusNode.requestFocus();
+    });
+  }
+
+  void _togglePreview() {
+    if (!_showPreview) {
+      _restoreFocusOnResume = false;
+      _focusNode.unfocus();
+      unawaited(_flushSave());
+    }
+    setState(() => _showPreview = !_showPreview);
+  }
+
+  Widget _buildMarkdownPreview(BuildContext context) {
+    final notes = _controller.text;
+    if (notes.trim().isEmpty) {
+      return const Center(
+        child: Text(
+          'No notes yet',
+          style: TextStyle(color: AppColors.textSecondary),
+        ),
+      );
+    }
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppColors.surfaceVariant,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.cardBorder),
+      ),
+      child: Markdown(
+        data: notes,
+        selectable: true,
+        padding: const EdgeInsets.all(16),
+        styleSheet: _markdownStyleSheet(context),
+      ),
+    );
+  }
+
+  MarkdownStyleSheet _markdownStyleSheet(BuildContext context) {
+    const baseTextStyle = TextStyle(
+      color: AppColors.textPrimary,
+      fontSize: 15,
+      height: 1.5,
+    );
+    return MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+      p: baseTextStyle,
+      h1: baseTextStyle.copyWith(fontSize: 24, fontWeight: FontWeight.w700),
+      h2: baseTextStyle.copyWith(fontSize: 20, fontWeight: FontWeight.w700),
+      h3: baseTextStyle.copyWith(fontSize: 17, fontWeight: FontWeight.w700),
+      strong: baseTextStyle.copyWith(fontWeight: FontWeight.w700),
+      em: baseTextStyle.copyWith(fontStyle: FontStyle.italic),
+      listBullet: baseTextStyle,
+      blockquote: baseTextStyle.copyWith(color: AppColors.textSecondary),
+      code: baseTextStyle.copyWith(
+        backgroundColor: AppColors.background,
+        fontFamily: 'monospace',
+      ),
+      codeblockDecoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      blockquoteDecoration: const BoxDecoration(
+        border: Border(left: BorderSide(color: AppColors.accent, width: 3)),
+      ),
     );
   }
 }

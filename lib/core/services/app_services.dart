@@ -14,6 +14,7 @@ import 'package:memory_notes/features/notes/data/repositories.dart';
 import 'package:memory_notes/features/notes/presentation/actions/notes_actions.dart';
 import 'package:memory_notes/features/search/application/search_store.dart';
 import 'package:memory_notes/features/speech/application/speech_controller.dart';
+import 'package:secrets_manager/secrets_manager.dart';
 
 /// Global service locator that wires auth, database, and feature controllers.
 class AppServices {
@@ -37,9 +38,11 @@ class AppServices {
   late final TodoFileController todoFiles;
   late final CategoryController categories;
   late final TodoController todos;
+  late final SecretsManager secrets;
 
   AppServices._(Configuration config) {
     final db = config.supaDatabaseRepository;
+    secrets = SecretsManager.supabase();
     auth = AuthController(config);
     workspace = NotesWorkspaceController();
     notesQuery = const NotesQueryService();
@@ -123,13 +126,16 @@ class AppServices {
   /// Loads all files, then warms categories and todos for search/navigation.
   Future<void> preloadAllData() async {
     await todoFiles.load();
-    final allFileIds =
-        todoFiles.todoFiles.value.where((file) => file.id != null).map((file) => file.id!).toList();
+    final allFileIds = todoFiles.todoFiles.value
+        .where((file) => file.id != null)
+        .map((file) => file.id!)
+        .toList();
     await categories.loadAllForSearch(allFileIds);
-    await Future.wait(
-      categories.categories.value
-          .where((category) => category.id != null)
-          .map((category) => todos.loadTodos(category.id!)),
-    );
+    for (final category in categories.categories.value.where((category) => category.id != null)) {
+      final loaded = await todos.loadTodos(category.id!);
+      if (!loaded) {
+        break;
+      }
+    }
   }
 }

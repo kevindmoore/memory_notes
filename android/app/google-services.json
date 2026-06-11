@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "387704115535",
+    "project_id": "memory-notes-b55d7",
+    "storage_bucket": "memory-notes-b55d7.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:387704115535:android:778bf1a8a96567c0a7753a",
+        "android_client_info": {
+          "package_name": "com.mastertechsoftware.memory_notes"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC4R_Wjh1GmyNog1wepsdvFwGLHvS99IPY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

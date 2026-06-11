@@ -19,16 +19,27 @@ class TodoController {
 
   final todosByCategory = mapSignal<int, List<Todo>>({});
   final loadedTodoCategoryIds = listSignal<int>([]);
+  DateTime? _lastLoadFailureAt;
+  static const _loadFailureRetryDelay = Duration(seconds: 20);
 
-  Future<void> loadTodos(int categoryId) async {
+  Future<bool> loadTodos(int categoryId) async {
+    final lastLoadFailureAt = _lastLoadFailureAt;
+    if (lastLoadFailureAt != null &&
+        DateTime.now().difference(lastLoadFailureAt) < _loadFailureRetryDelay) {
+      return false;
+    }
     try {
       final result = await _todoRepo.getByCategory(categoryId);
       todosByCategory[categoryId] = result;
       if (!loadedTodoCategoryIds.contains(categoryId)) {
         loadedTodoCategoryIds.add(categoryId);
       }
+      _lastLoadFailureAt = null;
+      return true;
     } catch (e) {
       logError('TodoController.loadTodos: $e');
+      _lastLoadFailureAt = DateTime.now();
+      return false;
     }
   }
 

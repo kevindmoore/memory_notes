@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:memory_notes/app/router/app_router.dart';
 import 'package:memory_notes/core/theme/app_theme.dart';
 import 'package:memory_notes/features/notes/application/notes_mobile_store.dart';
@@ -980,6 +981,7 @@ class _TodoNotesEditorState extends State<_TodoNotesEditor> {
   Timer? _saveTimer;
   String _lastSavedNotes = '';
   bool _isSaving = false;
+  bool _showPreview = false;
 
   @override
   void initState() {
@@ -1040,11 +1042,19 @@ class _TodoNotesEditorState extends State<_TodoNotesEditor> {
                 controller: _controller,
                 speech: widget.speech,
               ),
+              IconButton(
+                onPressed: _togglePreview,
+                icon: Icon(
+                  _showPreview ? Icons.edit_outlined : Icons.visibility_outlined,
+                  color: AppColors.textSecondary,
+                ),
+                tooltip: _showPreview ? 'Edit markdown' : 'Preview markdown',
+              ),
             ],
           ),
           const SizedBox(height: 8),
           Expanded(
-            child: TextField(
+            child: _showPreview ? _buildMarkdownPreview(context) : TextField(
               controller: _controller,
               focusNode: _focusNode,
               autofocus: true,
@@ -1114,6 +1124,69 @@ class _TodoNotesEditorState extends State<_TodoNotesEditor> {
       selection: TextSelection.collapsed(offset: notes.length),
     );
   }
+
+  void _togglePreview() {
+    if (!_showPreview) {
+      _focusNode.unfocus();
+      unawaited(_flushSave());
+    }
+    setState(() => _showPreview = !_showPreview);
+  }
+
+  Widget _buildMarkdownPreview(BuildContext context) {
+    final notes = _controller.text;
+    if (notes.trim().isEmpty) {
+      return const Center(
+        child: Text(
+          'No notes yet',
+          style: TextStyle(color: AppColors.textSecondary),
+        ),
+      );
+    }
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppColors.surfaceVariant,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.cardBorder),
+      ),
+      child: Markdown(
+        data: notes,
+        selectable: true,
+        padding: const EdgeInsets.all(16),
+        styleSheet: _markdownStyleSheet(context),
+      ),
+    );
+  }
+
+  MarkdownStyleSheet _markdownStyleSheet(BuildContext context) {
+    const baseTextStyle = TextStyle(
+      color: AppColors.textPrimary,
+      fontSize: 15,
+      height: 1.5,
+    );
+    return MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+      p: baseTextStyle,
+      h1: baseTextStyle.copyWith(fontSize: 24, fontWeight: FontWeight.w700),
+      h2: baseTextStyle.copyWith(fontSize: 20, fontWeight: FontWeight.w700),
+      h3: baseTextStyle.copyWith(fontSize: 17, fontWeight: FontWeight.w700),
+      strong: baseTextStyle.copyWith(fontWeight: FontWeight.w700),
+      em: baseTextStyle.copyWith(fontStyle: FontStyle.italic),
+      listBullet: baseTextStyle,
+      blockquote: baseTextStyle.copyWith(color: AppColors.textSecondary),
+      code: baseTextStyle.copyWith(
+        backgroundColor: AppColors.background,
+        fontFamily: 'monospace',
+      ),
+      codeblockDecoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      blockquoteDecoration: const BoxDecoration(
+        border: Border(left: BorderSide(color: AppColors.accent, width: 3)),
+      ),
+    );
+  }
 }
 
 class _TodoTaskTile extends StatelessWidget {
@@ -1143,9 +1216,7 @@ class _TodoTaskTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasNote = todo.notes.isNotEmpty;
     final hasChildren = childTaskCount > 0;
-    final showActions = hasChildren || hasNote;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: Container(
@@ -1163,74 +1234,67 @@ class _TodoTaskTile extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-              child: Row(
-                children: [
-                  SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: Checkbox(
-                      value: todo.done,
-                      onChanged: (_) => onToggleDone(),
-                      visualDensity: VisualDensity.compact,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      todo.name,
-                      style: TextStyle(
-                        color: todo.done ? AppColors.textDisabled : AppColors.textPrimary,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w500,
-                        decoration: todo.done ? TextDecoration.lineThrough : null,
-                        decorationColor: AppColors.textDisabled,
-                      ),
-                    ),
-                  ),
-                  if (hasChildren) ...[
-                    const SizedBox(width: 8),
-                    ChildTaskCountBadge(count: childTaskCount),
-                  ],
-                  GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () => _showOptions(context),
-                    child: const SizedBox(
-                      width: 32,
-                      height: 32,
-                      child: Icon(
-                        Icons.more_horiz_rounded,
-                        color: AppColors.textDisabled,
-                        size: 20,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (showActions) ...[
-              const Divider(height: 1, color: AppColors.cardBorder),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+            InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: onOpenNotes,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                 child: Row(
                   children: [
-                    if (hasChildren)
-                      _ActionButton(
-                        icon: Icons.account_tree_outlined,
-                        label: 'Child tasks',
+                    SizedBox(
+                      width: 44,
+                      height: 44,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: onToggleDone,
+                        child: Center(
+                          child: IgnorePointer(
+                            child: Checkbox(
+                              value: todo.done,
+                              onChanged: (_) => onToggleDone(),
+                              visualDensity: VisualDensity.compact,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        todo.name,
+                        style: TextStyle(
+                          color: todo.done ? AppColors.textDisabled : AppColors.textPrimary,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w500,
+                          decoration: todo.done ? TextDecoration.lineThrough : null,
+                          decorationColor: AppColors.textDisabled,
+                        ),
+                      ),
+                    ),
+                    if (hasChildren) ...[
+                      const SizedBox(width: 8),
+                      _ChildTaskButton(
+                        count: childTaskCount,
                         onTap: onOpenChildren!,
                       ),
-                    if (hasNote)
-                      _ActionButton(
-                        icon: Icons.notes_rounded,
-                        label: 'Notes',
-                        onTap: onOpenNotes,
+                    ],
+                    GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => _showOptions(context),
+                      child: const SizedBox(
+                        width: 32,
+                        height: 32,
+                        child: Icon(
+                          Icons.more_horiz_rounded,
+                          color: AppColors.textDisabled,
+                          size: 20,
+                        ),
                       ),
+                    ),
                   ],
                 ),
               ),
-            ],
+            ),
           ],
         ),
       ),
@@ -1271,38 +1335,25 @@ class _TodoTaskTile extends StatelessWidget {
   }
 }
 
-class _ActionButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
+class _ChildTaskButton extends StatelessWidget {
+  final int count;
   final VoidCallback onTap;
 
-  const _ActionButton({
-    required this.icon,
-    required this.label,
+  const _ChildTaskButton({
+    required this.count,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(8),
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 14, color: AppColors.accent),
-            const SizedBox(width: 4),
-            Text(
-              label,
-              style: const TextStyle(
-                color: AppColors.accent,
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
+      child: SizedBox(
+        width: 44,
+        height: 44,
+        child: Center(
+          child: ChildTaskCountBadge(count: count),
         ),
       ),
     );

@@ -569,13 +569,16 @@ class NotesWorkspaceStore {
     final allFiles = todoFiles.todoFiles.value;
     final restoredFileIds = query.normalizeFileIds(savedWorkspaceState.openFileIds, allFiles);
     final validFileIds = allFiles.where((file) => file.id != null).map((file) => file.id!).toSet();
-    final fallbackFileId = query
-        .sortFiles(
-          allFiles.where((file) => file.id != null),
-          sortOrder: NotesSortOrder.newest,
-        )
-        .firstOrNull
-        ?.id;
+    final hasSavedOpenFileIds = savedWorkspaceState.openFileIds.isNotEmpty;
+    final fallbackFileId = hasSavedOpenFileIds
+        ? null
+        : query
+            .sortFiles(
+              allFiles.where((file) => file.id != null),
+              sortOrder: NotesSortOrder.newest,
+            )
+            .firstOrNull
+            ?.id;
     final openFileIds = restoredFileIds.isNotEmpty
         ? restoredFileIds
         : fallbackFileId == null
@@ -617,11 +620,6 @@ class NotesWorkspaceStore {
   Future<void> _primePersistedWorkspaceSnapshot() async {
     final persistencePlan = _buildWorkspacePersistencePlan();
     _lastPersistedWorkspaceSnapshot = persistencePlan.deviceWorkspaceSerialized;
-    await deviceWorkspaceState.saveWorkspaceState(
-      openFileIds: persistencePlan.openFileIds,
-      selectedFileId: persistencePlan.selectedFileId,
-      selectionsByFile: persistencePlan.selectionsByFile,
-    );
   }
 
   _WorkspacePersistencePlan _buildWorkspacePersistencePlan() {

@@ -81,6 +81,48 @@ void main() {
       expect(viewState.selectedTodoPath, [100, 101]);
     });
 
+    test('initialize does not replace unrestorable saved files with a single fallback file',
+        () async {
+      final deviceWorkspaceState = _FakeDeviceWorkspaceStateRepository()
+        ..workspaceState = const PersistedWorkspaceState(openFileIds: [99, 100]);
+      final store = _buildStore(
+        fileRepository: _FakeTodoFileRepository([
+          const TodoFile(id: 1, name: 'Alpha'),
+        ]),
+        categoryRepository: _FakeCategoryRepository(const {}),
+        todoRepository: _FakeTodoRepository(const {}),
+        deviceWorkspaceState: deviceWorkspaceState,
+      );
+
+      await store.initialize();
+
+      expect(store.workspace.openFileIds.value, isEmpty);
+      expect(store.workspace.selectedFileId, isNull);
+      expect(deviceWorkspaceState.workspaceState.openFileIds, [99, 100]);
+      expect(deviceWorkspaceState.saveWorkspaceStateCalls, 0);
+    });
+
+    test('loadTodos backs off after a failed read', () async {
+      final todoRepository = _FakeTodoRepository({
+        20: const [Todo(id: 200, name: 'Two', categoryId: 20)],
+      });
+      final store = _buildStore(
+        fileRepository: _FakeTodoFileRepository(const []),
+        categoryRepository: _FakeCategoryRepository(const {}),
+        todoRepository: todoRepository,
+      );
+
+      todoRepository.throwOnNextGetByCategory = StateError('network blip');
+
+      final firstLoaded = await store.todos.loadTodos(10);
+      final secondLoaded = await store.todos.loadTodos(20);
+
+      expect(firstLoaded, isFalse);
+      expect(secondLoaded, isFalse);
+      expect(todoRepository.getByCategoryCalls, 1);
+      expect(store.todos.getTodosForCategory(20), isEmpty);
+    });
+
     test('persistCurrentFiles saves the normalized open-file ids to device state only', () async {
       final deviceWorkspaceState = _FakeDeviceWorkspaceStateRepository();
       final store = _buildStore(
@@ -1005,9 +1047,11 @@ class _FakeTodoRepository extends TodoRepository {
 
   final Map<int, List<Todo>> _todosByCategory;
   Object? throwOnNextGetByCategory;
+  int getByCategoryCalls = 0;
 
   @override
   Future<List<Todo>> getByCategory(int categoryId) async {
+    getByCategoryCalls++;
     final error = throwOnNextGetByCategory;
     throwOnNextGetByCategory = null;
     if (error != null) {

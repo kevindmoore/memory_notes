@@ -48,35 +48,17 @@ class NotesSyncService {
 
   bool _initialized = false;
   bool _connectivityHintOnline = true;
+  bool _realtimeRecoveryInFlight = false;
   bool _recoveryReloadInFlight = false;
   DateTime? _lastRecoveryReloadAt;
 
   Future<void> initialize() async {
     if (_initialized) {
-      logMessage('NotesSyncService initialize skipped: already initialized');
       return;
     }
     _initialized = true;
 
-    _todoFileSubscription = database
-        .subscribeToTableChanges(TodoFileTableData())
-        .listen(_handleFileChange, onError: (error) {
-      logError('NotesSyncService file stream error: $error');
-      _scheduleRecoveryRetry(reason: 'file stream error');
-    });
-
-    _categorySubscription = database
-        .subscribeToTableChanges(CategoryTableData())
-        .listen(_handleCategoryChange, onError: (error) {
-      logError('NotesSyncService category stream error: $error');
-      _scheduleRecoveryRetry(reason: 'category stream error');
-    });
-
-    _todoSubscription = database.subscribeToTableChanges(TodoTableData()).listen(_handleTodoChange,
-        onError: (error) {
-      logError('NotesSyncService todo stream error: $error');
-      _scheduleRecoveryRetry(reason: 'todo stream error');
-    });
+    _subscribeToRealtimeTables();
 
     _connectivityHintOnline = hasNetworkConnection(await connectivity.checkConnectivity());
     _connectivitySubscription =
@@ -86,9 +68,7 @@ class NotesSyncService {
   }
 
   Future<void> dispose() async {
-    await _todoFileSubscription?.cancel();
-    await _categorySubscription?.cancel();
-    await _todoSubscription?.cancel();
+    await _cancelRealtimeSubscriptions();
     await _connectivitySubscription?.cancel();
     _recoveryRetryTimer?.cancel();
     _initialized = false;
@@ -99,14 +79,65 @@ class NotesSyncService {
     await _performRecoveryReload(reason: 'app resumed');
   }
 
+  Future<void> handleRealtimeSocketClosed() async {
+    if (!_initialized) return;
+    await _recoverRealtime(reason: 'closed realtime socket');
+  }
+
+  void _subscribeToRealtimeTables() {
+    _todoFileSubscription = database
+        .subscribeToTableChanges(TodoFileTableData())
+        .listen(_handleFileChange, onError: (error) {
+      _handleRealtimeStreamError(error, reason: 'file stream error');
+    });
+
+    _categorySubscription = database
+        .subscribeToTableChanges(CategoryTableData())
+        .listen(_handleCategoryChange, onError: (error) {
+      _handleRealtimeStreamError(error, reason: 'category stream error');
+    });
+
+    _todoSubscription = database.subscribeToTableChanges(TodoTableData()).listen(_handleTodoChange,
+        onError: (error) {
+      _handleRealtimeStreamError(error, reason: 'todo stream error');
+    });
+  }
+
+  Future<void> _cancelRealtimeSubscriptions() async {
+    await _todoFileSubscription?.cancel();
+    await _categorySubscription?.cancel();
+    await _todoSubscription?.cancel();
+    _todoFileSubscription = null;
+    _categorySubscription = null;
+    _todoSubscription = null;
+  }
+
+  void _handleRealtimeStreamError(Object error, {required String reason}) {
+    logError('NotesSyncService $reason: $error');
+    unawaited(_recoverRealtime(reason: reason));
+  }
+
+  Future<void> _recoverRealtime({required String reason}) async {
+    if (_realtimeRecoveryInFlight) {
+      return;
+    }
+
+    _realtimeRecoveryInFlight = true;
+    try {
+      await _cancelRealtimeSubscriptions();
+      if (!_initialized) return;
+      _subscribeToRealtimeTables();
+      await _performRecoveryReload(reason: reason, ignoreCooldown: true);
+    } catch (error) {
+      logError('NotesSyncService realtime recovery failed ($reason): $error');
+      _scheduleRecoveryRetry(reason: reason);
+    } finally {
+      _realtimeRecoveryInFlight = false;
+    }
+  }
+
   Future<void> _handleFileChange(dynamic payload) async {
-    logMessage('NotesSyncService file change: ${payload.eventType}');
     if (_shouldSkipFileRefresh(payload)) {
-      logMessage(
-        'NotesSyncService file change skipped: '
-        'event=${payload.eventType}, '
-        'fileId=${_readInt(payload.oldRecord, 'id', fallback: _readInt(payload.newRecord, 'id'))}',
-      );
       return;
     }
     await todoFiles.load();
@@ -126,13 +157,7 @@ class NotesSyncService {
   }
 
   Future<void> _handleCategoryChange(dynamic payload) async {
-    logMessage('NotesSyncService category change: ${payload.eventType}');
     if (_shouldSkipCategoryRefresh(payload)) {
-      logMessage(
-        'NotesSyncService category change skipped: '
-        'event=${payload.eventType}, '
-        'categoryId=${_readInt(payload.oldRecord, 'id', fallback: _readInt(payload.newRecord, 'id'))}',
-      );
       return;
     }
     final fileId = _readInt(
@@ -164,14 +189,7 @@ class NotesSyncService {
   }
 
   Future<void> _handleTodoChange(dynamic payload) async {
-    logMessage('NotesSyncService todo change: ${payload.eventType}');
     if (_shouldSkipTodoRefresh(payload)) {
-      logMessage(
-        'NotesSyncService todo change skipped: '
-        'event=${payload.eventType}, '
-        'todoId=${_readInt(payload.oldRecord, 'id', fallback: _readInt(payload.newRecord, 'id'))}, '
-        'categoryId=${_readInt(payload.oldRecord, 'categoryId', fallback: _readInt(payload.newRecord, 'categoryId'))}',
-      );
       return;
     }
     final eventType = payload.eventType?.toString() ?? '';
@@ -205,10 +223,6 @@ class NotesSyncService {
     }
 
     if (eventType.contains('delete')) {
-      logMessage(
-        'NotesSyncService processing todo delete: '
-        'todoId=$todoId, categoryId=$resolvedCategoryId',
-      );
       todos.removeTodoById(categoryId: resolvedCategoryId, todoId: todoId);
       await todos.loadTodos(resolvedCategoryId);
       notesWorkspace.syncWorkspace();
@@ -309,16 +323,18 @@ class NotesSyncService {
     _scheduleRecoveryRetry(reason: 'connectivity changed');
   }
 
-  Future<void> _performRecoveryReload({required String reason}) async {
+  Future<void> _performRecoveryReload({
+    required String reason,
+    bool ignoreCooldown = false,
+  }) async {
     if (_recoveryReloadInFlight) {
-      logMessage('NotesSyncService recovery reload skipped: already in flight ($reason)');
       return;
     }
 
     final nowValue = now();
-    if (_lastRecoveryReloadAt != null &&
+    if (!ignoreCooldown &&
+        _lastRecoveryReloadAt != null &&
         nowValue.difference(_lastRecoveryReloadAt!) < recoveryReloadCooldown) {
-      logMessage('NotesSyncService recovery reload skipped: cooldown active ($reason)');
       return;
     }
 
@@ -326,19 +342,16 @@ class NotesSyncService {
 
     final backendReachable = await _canReachBackend();
     if (!backendReachable) {
-      logMessage('NotesSyncService recovery reload deferred: backend unreachable ($reason)');
       _scheduleRecoveryRetry(reason: reason);
       return;
     }
 
     _recoveryReloadInFlight = true;
     try {
-      logMessage('NotesSyncService recovery reload started: $reason');
       await notesWorkspace.reloadAllFiles();
       _lastRecoveryReloadAt = now();
       _recoveryRetryTimer?.cancel();
       _recoveryRetryTimer = null;
-      logMessage('NotesSyncService recovery reload completed: $reason');
     } catch (error) {
       logError('NotesSyncService recovery reload failed ($reason): $error');
       _scheduleRecoveryRetry(reason: reason);
@@ -353,10 +366,10 @@ class NotesSyncService {
       case Success():
         return true;
       case Failure(error: final error):
-        logMessage('NotesSyncService backend probe failed: $error');
+        logError('NotesSyncService backend probe failed: $error');
         return false;
       case ErrorMessage(code: final code, message: final message):
-        logMessage('NotesSyncService backend probe failed: [$code] $message');
+        logError('NotesSyncService backend probe failed: [$code] $message');
         return false;
     }
   }
@@ -365,7 +378,6 @@ class NotesSyncService {
     if (!_initialized) return;
     if (_recoveryRetryTimer?.isActive ?? false) return;
 
-    logMessage('NotesSyncService scheduling recovery retry: $reason');
     _recoveryRetryTimer = Timer.periodic(recoveryRetryInterval, (_) {
       _performRecoveryReload(reason: 'scheduled retry');
     });

@@ -29,11 +29,12 @@ class SearchStore {
           .map((file) => file.id!)
           .toList();
       await categories.loadAllForSearch(fileIds);
-      await Future.wait(
-        categories.categories.value
-            .where((category) => category.id != null)
-            .map((category) => todos.loadTodos(category.id!)),
-      );
+      for (final category in categories.categories.value.where((category) => category.id != null)) {
+        final loaded = await todos.loadTodos(category.id!);
+        if (!loaded) {
+          break;
+        }
+      }
     } finally {
       isLoading.value = false;
     }

@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:lumberdash/lumberdash.dart';
 import 'package:memory_notes/core/theme/app_theme.dart';
 import 'package:memory_notes/features/auth/application/auth_controller.dart';
 
@@ -35,13 +38,27 @@ class _StartupWrapperState extends State<StartupWrapper> {
     try {
       await widget.auth.loadUser();
       if (widget.auth.isLoggedIn.value) {
-        await widget.preloadAllData();
-        await widget.initializeSync();
+        _warmLoggedInSession();
       }
     } finally {
       if (mounted) {
         setState(() => _initialized = true);
       }
+    }
+  }
+
+  void _warmLoggedInSession() {
+    unawaited(_preloadLoggedInSession());
+  }
+
+  Future<void> _preloadLoggedInSession() async {
+    try {
+      await Future.wait([
+        widget.preloadAllData(),
+        widget.initializeSync(),
+      ]);
+    } catch (error) {
+      logError('StartupWrapper._preloadLoggedInSession: $error');
     }
   }
 

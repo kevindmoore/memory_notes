@@ -68,6 +68,8 @@ class _NotesListScreenState extends State<NotesListScreen> {
   int? _pendingDesktopRestoreFileId;
   bool _desktopRestoreScheduled = false;
   int? _lastDesktopSelectedFileId;
+  int _todoNotesFocusRequestId = 0;
+  int _todoListScrollToTopRequestId = 0;
 
   static const _sortActions = [
     NotesActionSheetItem(value: NotesSortOrder.nameAZ, label: 'Name A to Z'),
@@ -139,9 +141,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
   @override
   void reassemble() {
     super.reassemble();
-    widget.notesWorkspace.repairEmptyOpenWorkspaceFromLoadedData(
-      sortOrder: _sortOrder,
-    );
+    widget.notesWorkspace.repairEmptyOpenWorkspaceFromLoadedData(sortOrder: _sortOrder);
   }
 
   @override
@@ -153,16 +153,8 @@ class _NotesListScreenState extends State<NotesListScreen> {
     super.dispose();
   }
 
-  void _selectTodo({
-    required int fileId,
-    required int categoryId,
-    required List<int> todoPath,
-  }) {
-    widget.notesWorkspace.selectTodo(
-      fileId: fileId,
-      categoryId: categoryId,
-      todoPath: todoPath,
-    );
+  void _selectTodo({required int fileId, required int categoryId, required List<int> todoPath}) {
+    widget.notesWorkspace.selectTodo(fileId: fileId, categoryId: categoryId, todoPath: todoPath);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_desktopWorkspaceScrollController.hasClients) return;
       _desktopWorkspaceScrollController.animateTo(
@@ -173,20 +165,25 @@ class _NotesListScreenState extends State<NotesListScreen> {
     });
   }
 
-  void _selectDesktopCategory({
-    required TodoFile file,
-    required Category category,
+  void _selectDesktopTodo({
+    required int fileId,
+    required int categoryId,
+    required List<int> todoPath,
   }) {
-    widget.notesWorkspace.selectCategory(
-      file: file,
-      category: category,
-    );
+    _selectTodo(fileId: fileId, categoryId: categoryId, todoPath: todoPath);
+    setState(() => _todoNotesFocusRequestId++);
+  }
+
+  void _selectDesktopCategory({required TodoFile file, required Category category}) {
+    widget.notesWorkspace.selectCategory(file: file, category: category);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_desktopWorkspaceScrollController.hasClients) return;
       final position = _desktopWorkspaceScrollController.position;
-      final targetOffset = (_desktopSidebarWidth + desktopCategoryRailWidth)
-          .clamp(position.minScrollExtent, position.maxScrollExtent);
+      final targetOffset = (_desktopSidebarWidth + desktopCategoryRailWidth).clamp(
+        position.minScrollExtent,
+        position.maxScrollExtent,
+      );
       _desktopWorkspaceScrollController.animateTo(
         targetOffset,
         duration: const Duration(milliseconds: 280),
@@ -235,9 +232,9 @@ class _NotesListScreenState extends State<NotesListScreen> {
     );
     List<DesktopWorkspaceFileItem> filterItems(List<DesktopWorkspaceFileItem> items) {
       if (query.isEmpty) return items;
-      return items.where((item) => item.file.name.toLowerCase().contains(query)).toList(
-            growable: false,
-          );
+      return items
+          .where((item) => item.file.name.toLowerCase().contains(query))
+          .toList(growable: false);
     }
 
     return MobileListsView(
@@ -312,21 +309,21 @@ class _NotesListScreenState extends State<NotesListScreen> {
               height: topInset,
               decoration: const BoxDecoration(
                 color: AppColors.background,
-                border: Border(
-                  bottom: BorderSide(color: AppColors.divider),
-                ),
+                border: Border(bottom: BorderSide(color: AppColors.divider)),
               ),
             ),
           Expanded(
             child: LayoutBuilder(
               builder: (context, constraints) {
                 const sidebarWidth = _desktopSidebarWidth;
-                final minWorkspaceWidth = desktopCategoryRailWidth +
+                final minWorkspaceWidth =
+                    desktopCategoryRailWidth +
                     desktopTodoDrilldownMinWidth +
                     desktopTodoNotesPaneMinWidth;
                 final minDesktopWidth = sidebarWidth + minWorkspaceWidth;
-                final contentWidth =
-                    constraints.maxWidth < minDesktopWidth ? minDesktopWidth : constraints.maxWidth;
+                final contentWidth = constraints.maxWidth < minDesktopWidth
+                    ? minDesktopWidth
+                    : constraints.maxWidth;
                 final workspaceWidth = contentWidth - sidebarWidth;
 
                 return NotificationListener<ScrollEndNotification>(
@@ -355,9 +352,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
                               child: DecoratedBox(
                                 decoration: const BoxDecoration(
                                   color: AppColors.navBackground,
-                                  border: Border(
-                                    right: BorderSide(color: AppColors.divider),
-                                  ),
+                                  border: Border(right: BorderSide(color: AppColors.divider)),
                                 ),
                                 child: Column(
                                   children: [
@@ -377,8 +372,10 @@ class _NotesListScreenState extends State<NotesListScreen> {
                                                 controller: _desktopSidebarScrollController,
                                                 padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
                                                 children: viewState.openFileItems
-                                                    .map((item) =>
-                                                        _buildDesktopFileTile(context, item))
+                                                    .map(
+                                                      (item) =>
+                                                          _buildDesktopFileTile(context, item),
+                                                    )
                                                     .toList(growable: false),
                                               ),
                                             ),
@@ -400,16 +397,18 @@ class _NotesListScreenState extends State<NotesListScreen> {
                                       todoSortOrder: _todoSortOrder,
                                       selectedTodo: viewState.selectedTodo,
                                       selectedTodoPath: viewState.selectedTodoPath,
+                                      todoNotesFocusRequestId: _todoNotesFocusRequestId,
+                                      todoListScrollToTopRequestId: _todoListScrollToTopRequestId,
                                       expandedTodoId: _expandedTodoId,
                                       speech: widget.speech,
                                       onCreateTodo: selectedCategory == null
                                           ? null
                                           : () => _showCreateTodoDialog(
-                                                context,
-                                                fileId: selectedFile.id!,
-                                                categoryId: selectedCategory.id!,
-                                                parentTodoId: activeTodoParentId,
-                                              ),
+                                              context,
+                                              fileId: selectedFile.id!,
+                                              categoryId: selectedCategory.id!,
+                                              parentTodoId: activeTodoParentId,
+                                            ),
                                       onCreateChildTodo: (todo) => _showCreateTodoDialog(
                                         context,
                                         fileId: selectedFile.id!,
@@ -421,7 +420,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
                                         file: selectedFile,
                                         category: category,
                                       ),
-                                      onSelectTodo: (todoPath) => _selectTodo(
+                                      onSelectTodo: (todoPath) => _selectDesktopTodo(
                                         fileId: selectedFile.id!,
                                         categoryId: selectedCategory!.id!,
                                         todoPath: todoPath,
@@ -438,10 +437,10 @@ class _NotesListScreenState extends State<NotesListScreen> {
                                       onCategoryActions: selectedCategory == null
                                           ? null
                                           : () => _showCategoryActions(
-                                                context,
-                                                category: selectedCategory,
-                                                file: selectedFile,
-                                              ),
+                                              context,
+                                              category: selectedCategory,
+                                              file: selectedFile,
+                                            ),
                                     ),
                             ),
                           ],
@@ -499,18 +498,18 @@ class _NotesListScreenState extends State<NotesListScreen> {
       speech: widget.speech,
     );
     if (text == null) return;
-    await widget.notesWorkspace.addTodo(
+    final created = await widget.notesWorkspace.addTodo(
       fileId: fileId,
       categoryId: categoryId,
       text: text,
       parentTodoId: parentTodoId,
     );
+    if (created != null && mounted) {
+      setState(() => _todoListScrollToTopRequestId++);
+    }
   }
 
-  int? _desktopActiveTodoParentId({
-    required List<Todo> todos,
-    required Todo? selectedTodo,
-  }) {
+  int? _desktopActiveTodoParentId({required List<Todo> todos, required Todo? selectedTodo}) {
     if (selectedTodo?.id == null) {
       return null;
     }
@@ -542,10 +541,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
       validator: _validateListName,
     );
     if (name == null) return;
-    await widget.notesListActions.duplicateList(
-      file: file,
-      name: name,
-    );
+    await widget.notesListActions.duplicateList(file: file, name: name);
   }
 
   String? _validateListName(String value, {int? excludingId}) {
@@ -556,9 +552,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
     return null;
   }
 
-  Future<void> _mergeDuplicateLists({
-    int? preferredFileId,
-  }) async {
+  Future<void> _mergeDuplicateLists({int? preferredFileId}) async {
     final result = await widget.notesListActions.mergeDuplicateLists(
       preferredFileId: preferredFileId,
     );
@@ -566,9 +560,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
     if (!mounted) return;
     final messenger = ScaffoldMessenger.of(context);
     if (!result.didMerge) {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('No duplicate lists found to merge.')),
-      );
+      messenger.showSnackBar(const SnackBar(content: Text('No duplicate lists found to merge.')));
       return;
     }
     messenger.showSnackBar(
@@ -604,16 +596,11 @@ class _NotesListScreenState extends State<NotesListScreen> {
       speech: widget.speech,
     );
     if (name == null) return;
-    await widget.notesListActions.duplicateTodo(
-      todo: todo,
-      name: name,
-    );
+    await widget.notesListActions.duplicateTodo(todo: todo, name: name);
   }
 
   Future<void> _showOpenListDialog(BuildContext context) async {
-    final closedItems = widget.notesWorkspace.buildClosedFileItems(
-      sortOrder: _sortOrder,
-    );
+    final closedItems = widget.notesWorkspace.buildClosedFileItems(sortOrder: _sortOrder);
     final selectedFile = await showNotesSelectionDialog<TodoFile>(
       context,
       title: 'Open List',
@@ -633,10 +620,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
   }
 
   Future<void> _saveTodoNotes(Todo todo, String notes) async {
-    await widget.notesListActions.saveTodoNotes(
-      todo: todo,
-      notes: notes,
-    );
+    await widget.notesListActions.saveTodoNotes(todo: todo, notes: notes);
   }
 
   Future<void> _showCategoryActions(
@@ -692,25 +676,16 @@ class _NotesListScreenState extends State<NotesListScreen> {
         speech: widget.speech,
       );
       if (name != null) {
-        await widget.notesListActions.duplicateCategory(
-          category: category,
-          name: name,
-        );
+        await widget.notesListActions.duplicateCategory(category: category, name: name);
       }
     }
 
     if (action == _CategoryAction.delete) {
-      await widget.notesListActions.deleteCategory(
-        category: category,
-        file: file,
-      );
+      await widget.notesListActions.deleteCategory(category: category, file: file);
     }
   }
 
-  Widget _buildDesktopFileTile(
-    BuildContext context,
-    DesktopWorkspaceFileItem item,
-  ) {
+  Widget _buildDesktopFileTile(BuildContext context, DesktopWorkspaceFileItem item) {
     final file = item.file;
     return DesktopTreeFileTile(
       file: file,
@@ -719,10 +694,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
       isOpen: item.isOpen,
       onTap: () async {
         _persistCurrentDesktopScrollOffset();
-        await widget.notesWorkspace.selectFile(
-          file,
-          autoSelectFirstCategory: false,
-        );
+        await widget.notesWorkspace.selectFile(file, autoSelectFirstCategory: false);
       },
       onToggleOpen: () => item.isOpen
           ? widget.notesListActions.closeFile(file)
@@ -730,10 +702,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
       onRefresh: () => widget.notesListActions.reloadList(file),
       onCreateCategory: () async {
         _persistCurrentDesktopScrollOffset();
-        await widget.notesWorkspace.selectFile(
-          file,
-          autoSelectFirstCategory: false,
-        );
+        await widget.notesWorkspace.selectFile(file, autoSelectFirstCategory: false);
         if (context.mounted) {
           await _showCreateCategoryDialog(context, file);
         }
@@ -746,9 +715,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
 
   Future<void> _showWorkspaceMenu(BuildContext context) async {
     final canOpenList = widget.notesWorkspace
-        .buildClosedFileItems(
-          sortOrder: _sortOrder,
-        )
+        .buildClosedFileItems(sortOrder: _sortOrder)
         .isNotEmpty;
 
     final action = await showNotesActionSheet<Object>(
@@ -814,10 +781,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
   }
 
   Future<void> _showTodoSortMenu(BuildContext context) async {
-    final action = await showNotesActionSheet<TodoSortOrder>(
-      context,
-      actions: _todoSortActions,
-    );
+    final action = await showNotesActionSheet<TodoSortOrder>(context, actions: _todoSortActions);
     if (action != null) {
       setState(() => _todoSortOrder = action);
     }
@@ -847,10 +811,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
 
     final position = _desktopWorkspaceScrollController.position;
     final restoredOffset = widget.notesWorkspace.desktopScrollOffsetForFile(fileId);
-    final targetOffset = restoredOffset.clamp(
-      position.minScrollExtent,
-      position.maxScrollExtent,
-    );
+    final targetOffset = restoredOffset.clamp(position.minScrollExtent, position.maxScrollExtent);
 
     if ((_desktopWorkspaceScrollController.offset - targetOffset).abs() > 1) {
       _desktopWorkspaceScrollController.jumpTo(targetOffset);
@@ -874,9 +835,6 @@ class _NotesListScreenState extends State<NotesListScreen> {
     if (isTemporarySidebarReveal) {
       return;
     }
-    widget.notesWorkspace.saveDesktopScrollOffset(
-      fileId: selectedFileId,
-      offset: currentOffset,
-    );
+    widget.notesWorkspace.saveDesktopScrollOffset(fileId: selectedFileId, offset: currentOffset);
   }
 }

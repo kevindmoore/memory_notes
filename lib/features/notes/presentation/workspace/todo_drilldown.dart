@@ -21,6 +21,7 @@ class DesktopTodoDrilldown extends StatefulWidget {
     required this.selectedTodoPath,
     required this.expandedTodoId,
     required this.selectedTodo,
+    required this.scrollToTopRequestId,
     required this.onCreateTodo,
     required this.onCreateChildTodo,
     required this.onSelectTodo,
@@ -37,6 +38,7 @@ class DesktopTodoDrilldown extends StatefulWidget {
   final List<int> selectedTodoPath;
   final Signal<int?> expandedTodoId;
   final Todo? selectedTodo;
+  final int scrollToTopRequestId;
   final VoidCallback? onCreateTodo;
   final ValueChanged<Todo> onCreateChildTodo;
   final ValueChanged<List<int>> onSelectTodo;
@@ -52,11 +54,51 @@ class DesktopTodoDrilldown extends StatefulWidget {
 
 class _DesktopTodoDrilldownState extends State<DesktopTodoDrilldown> {
   final _horizontalScrollController = ScrollController();
+  final Map<int, ScrollController> _columnScrollControllers = <int, ScrollController>{};
+  final Map<int, GlobalKey> _todoTileKeys = <int, GlobalKey>{};
 
   @override
   void dispose() {
     _horizontalScrollController.dispose();
+    for (final controller in _columnScrollControllers.values) {
+      controller.dispose();
+    }
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant DesktopTodoDrilldown oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final selectedTodoId = widget.selectedTodo?.id;
+    final shouldScrollToTop = widget.scrollToTopRequestId != oldWidget.scrollToTopRequestId;
+    if (selectedTodoId != null &&
+        selectedTodoId != oldWidget.selectedTodo?.id &&
+        !shouldScrollToTop) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final selectedContext = _todoTileKeys[selectedTodoId]?.currentContext;
+        if (selectedContext == null) return;
+        Scrollable.ensureVisible(
+          selectedContext,
+          duration: const Duration(milliseconds: 280),
+          curve: Curves.easeOutCubic,
+          alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtEnd,
+        );
+      });
+    }
+    if (shouldScrollToTop) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        for (final controller in _columnScrollControllers.values) {
+          if (!controller.hasClients) continue;
+          controller.animateTo(
+            controller.position.minScrollExtent,
+            duration: const Duration(milliseconds: 280),
+            curve: Curves.easeOutCubic,
+          );
+        }
+      });
+    }
   }
 
   @override
@@ -66,6 +108,13 @@ class _DesktopTodoDrilldownState extends State<DesktopTodoDrilldown> {
       widget.selectedTodoPath,
       sortOrder: widget.todoSortOrder,
     );
+    final visibleTodoIds = widget.todos.map((todo) => todo.id).whereType<int>().toSet();
+    _todoTileKeys.removeWhere((todoId, _) => !visibleTodoIds.contains(todoId));
+    _columnScrollControllers.removeWhere((index, controller) {
+      if (index < columns.length) return false;
+      controller.dispose();
+      return true;
+    });
     final isKeyboardVisible = MediaQuery.viewInsetsOf(context).bottom > 0;
     return Column(
       children: [
@@ -88,11 +137,7 @@ class _DesktopTodoDrilldownState extends State<DesktopTodoDrilldown> {
               ),
               IconButton(
                 onPressed: widget.onTodoSortMenu,
-                icon: const Icon(
-                  Icons.sort_rounded,
-                  color: AppColors.textDisabled,
-                  size: 20,
-                ),
+                icon: const Icon(Icons.sort_rounded, color: AppColors.textDisabled, size: 20),
                 tooltip: 'Sort tasks',
               ),
             ],
@@ -101,10 +146,7 @@ class _DesktopTodoDrilldownState extends State<DesktopTodoDrilldown> {
         Expanded(
           child: widget.todos.isEmpty
               ? const Center(
-                  child: Text(
-                    'No tasks yet',
-                    style: TextStyle(color: AppColors.textSecondary),
-                  ),
+                  child: Text('No tasks yet', style: TextStyle(color: AppColors.textSecondary)),
                 )
               : LayoutBuilder(
                   builder: (context, constraints) => Scrollbar(
@@ -130,6 +172,7 @@ class _DesktopTodoDrilldownState extends State<DesktopTodoDrilldown> {
                                   title: index == 0 ? 'Tasks' : 'Children',
                                   todos: columns[index],
                                   allTodos: widget.todos,
+                                  controller: _columnScrollControllerForIndex(index),
                                   selectedTodoId: index < widget.selectedTodoPath.length
                                       ? widget.selectedTodoPath[index]
                                       : null,
@@ -143,6 +186,7 @@ class _DesktopTodoDrilldownState extends State<DesktopTodoDrilldown> {
                                   onDelete: widget.onTodoDelete,
                                   onToggleDone: widget.onTodoToggle,
                                   onCreateChild: widget.onCreateChildTodo,
+                                  todoTileKeyForId: _todoTileKeyForId,
                                 ),
                               ),
                             ],
@@ -199,6 +243,14 @@ class _DesktopTodoDrilldownState extends State<DesktopTodoDrilldown> {
       ],
     );
   }
+
+  GlobalKey _todoTileKeyForId(int todoId) {
+    return _todoTileKeys.putIfAbsent(todoId, GlobalKey.new);
+  }
+
+  ScrollController _columnScrollControllerForIndex(int index) {
+    return _columnScrollControllers.putIfAbsent(index, ScrollController.new);
+  }
 }
 
 List<List<Todo>> buildTodoColumns(
@@ -209,7 +261,7 @@ List<List<Todo>> buildTodoColumns(
   const query = NotesQueryService();
   final columns = <List<Todo>>[];
   int? parentTodoId;
-  for (var depth = 0;; depth++) {
+  for (var depth = 0; ; depth++) {
     final columnTodos = query.sortTodos(
       todos.where((todo) => todo.parentTodoId == parentTodoId),
       sortOrder: sortOrder,
@@ -232,6 +284,7 @@ class DesktopTodoColumn extends StatelessWidget {
     required this.title,
     required this.todos,
     required this.allTodos,
+    required this.controller,
     required this.selectedTodoId,
     required this.onSelectTodo,
     required this.onDuplicate,
@@ -239,11 +292,13 @@ class DesktopTodoColumn extends StatelessWidget {
     required this.onDelete,
     required this.onToggleDone,
     required this.onCreateChild,
+    required this.todoTileKeyForId,
   });
 
   final String title;
   final List<Todo> todos;
   final List<Todo> allTodos;
+  final ScrollController controller;
   final int? selectedTodoId;
   final ValueChanged<Todo> onSelectTodo;
   final ValueChanged<Todo> onDuplicate;
@@ -251,12 +306,14 @@ class DesktopTodoColumn extends StatelessWidget {
   final ValueChanged<Todo> onDelete;
   final ValueChanged<Todo> onToggleDone;
   final ValueChanged<Todo> onCreateChild;
+  final GlobalKey Function(int todoId) todoTileKeyForId;
 
   @override
   Widget build(BuildContext context) {
     final isKeyboardVisible = MediaQuery.viewInsetsOf(context).bottom > 0;
-    final listPadding =
-        isKeyboardVisible ? const EdgeInsets.fromLTRB(12, 8, 12, 8) : const EdgeInsets.all(12);
+    final listPadding = isKeyboardVisible
+        ? const EdgeInsets.fromLTRB(12, 8, 12, 8)
+        : const EdgeInsets.all(12);
     final itemSpacing = isKeyboardVisible ? 6.0 : 10.0;
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -267,6 +324,7 @@ class DesktopTodoColumn extends StatelessWidget {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(18),
         child: CustomScrollView(
+          controller: controller,
           slivers: [
             if (!isKeyboardVisible) ...[
               SliverToBoxAdapter(
@@ -292,20 +350,20 @@ class DesktopTodoColumn extends StatelessWidget {
                   ),
                 ),
               ),
-              const SliverToBoxAdapter(
-                child: Divider(height: 1),
-              ),
+              const SliverToBoxAdapter(child: Divider(height: 1)),
             ],
             SliverPadding(
               padding: listPadding,
               sliver: SliverList.builder(
                 itemCount: todos.length,
                 itemBuilder: (context, index) => Padding(
+                  key: todos[index].id == null ? null : todoTileKeyForId(todos[index].id!),
                   padding: EdgeInsets.only(bottom: itemSpacing),
                   child: DesktopTodoTile(
                     todo: todos[index],
-                    childTaskCount:
-                        allTodos.where((todo) => todo.parentTodoId == todos[index].id).length,
+                    childTaskCount: allTodos
+                        .where((todo) => todo.parentTodoId == todos[index].id)
+                        .length,
                     isSelected: selectedTodoId == todos[index].id,
                     onTap: () => onSelectTodo(todos[index]),
                     onDuplicate: () => onDuplicate(todos[index]),
@@ -359,13 +417,7 @@ class DesktopTodoTile extends StatelessWidget {
           width: isSelected ? 1.6 : 1,
         ),
         boxShadow: isSelected
-            ? const [
-                BoxShadow(
-                  color: Color(0x403E67FF),
-                  blurRadius: 14,
-                  offset: Offset(0, 8),
-                ),
-              ]
+            ? const [BoxShadow(color: Color(0x403E67FF), blurRadius: 14, offset: Offset(0, 8))]
             : null,
       ),
       child: InkWell(
@@ -386,10 +438,7 @@ class DesktopTodoTile extends StatelessWidget {
                     borderRadius: BorderRadius.circular(999),
                   ),
                 ),
-              Checkbox(
-                value: todo.done,
-                onChanged: (_) => onToggleDone(),
-              ),
+              Checkbox(value: todo.done, onChanged: (_) => onToggleDone()),
             ],
           ),
           title: Text(
@@ -414,10 +463,7 @@ class DesktopTodoTile extends StatelessWidget {
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              ChildTaskCountBadge(
-                count: childTaskCount,
-                isSelected: isSelected,
-              ),
+              ChildTaskCountBadge(count: childTaskCount, isSelected: isSelected),
               PopupMenuButton<String>(
                 color: AppColors.surface,
                 icon: const Icon(Icons.more_horiz_rounded, color: AppColors.textDisabled),

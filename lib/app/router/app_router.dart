@@ -52,7 +52,7 @@ class AppRouter extends RootStackRouter {
       if (isLoggedIn || resolver.routeName == LoginRoute.name) {
         resolver.next();
       } else {
-        resolver.redirect(
+        resolver.redirectUntil(
           LoginRoute(
             auth: auth,
             onResult: (didLogin) {
