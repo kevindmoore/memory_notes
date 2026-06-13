@@ -389,7 +389,7 @@ void main() {
       expect(viewState.categories.map((item) => item.id).toList(), [20]);
     });
 
-    test('buildViewState keeps open files sorted by the active sort order', () async {
+    test('buildViewState keeps open files ordered by the desktop open order', () async {
       final store = _buildStore(
         fileRepository: _FakeTodoFileRepository([
           TodoFile(
@@ -412,7 +412,7 @@ void main() {
 
       final viewState = store.buildViewState(sortOrder: NotesSortOrder.lastUpdated);
 
-      expect(viewState.openFileItems.map((item) => item.file.id).toList(), [1, 2]);
+      expect(viewState.openFileItems.map((item) => item.file.id).toList(), [2, 1]);
       expect(viewState.fileItems.map((item) => item.file.id).toList(), [1, 2]);
     });
 
@@ -640,6 +640,49 @@ void main() {
       expect(store.todos.getTodosForCategory(10).map((todo) => todo.id).toList(), [100]);
       expect(deviceWorkspaceState.workspaceState.selectionsByFile[1]?.todoId, 100);
       expect(deviceWorkspaceState.workspaceState.selectionsByFile[1]?.todoPath, [100]);
+    });
+
+    test('toggleTodo clears the selected task for the current category', () async {
+      final deviceWorkspaceState = _FakeDeviceWorkspaceStateRepository();
+      final store = _buildStore(
+        fileRepository: _FakeTodoFileRepository([
+          const TodoFile(id: 1, name: 'Alpha'),
+        ]),
+        categoryRepository: _FakeCategoryRepository({
+          1: [
+            const Category(id: 10, name: 'Inbox', todoFileId: 1),
+          ],
+        }),
+        todoRepository: _FakeTodoRepository({
+          10: const [
+            Todo(id: 100, name: 'First', todoFileId: 1, categoryId: 10),
+            Todo(id: 101, name: 'Second', todoFileId: 1, categoryId: 10),
+          ],
+        }),
+        deviceWorkspaceState: deviceWorkspaceState,
+      );
+
+      await store.todoFiles.load();
+      await store.categories.loadCategories(1);
+      await store.todos.loadTodos(10);
+      store.workspace.selectTodo(
+        fileId: 1,
+        categoryId: 10,
+        todoId: 100,
+        todoPath: const [100],
+      );
+
+      await store.toggleTodo(
+        const Todo(id: 101, name: 'Second', todoFileId: 1, categoryId: 10),
+      );
+
+      expect(store.workspace.selectedFileId, 1);
+      expect(store.workspace.selectedCategoryId, 10);
+      expect(store.workspace.selectedTodoId, isNull);
+      expect(store.workspace.selectedTodoPath, isEmpty);
+      expect(store.todos.getTodosForCategory(10).singleWhere((todo) => todo.id == 101).done, true);
+      expect(deviceWorkspaceState.workspaceState.selectionsByFile[1]?.todoId, isNull);
+      expect(deviceWorkspaceState.workspaceState.selectionsByFile[1]?.todoPath, isEmpty);
     });
 
     test('reloadFile refreshes categories and todos for that list from the repository', () async {

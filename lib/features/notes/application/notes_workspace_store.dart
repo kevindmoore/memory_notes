@@ -49,6 +49,7 @@ class NotesWorkspaceStore {
     final openFiles = query.sortFiles(
       files.where((file) => file.id != null && openFileIds.contains(file.id!)),
       sortOrder: sortOrder,
+      preferredFileOrder: openFileIds,
     );
 
     return NotesWorkspaceViewState(
@@ -443,6 +444,20 @@ class NotesWorkspaceStore {
   Future<void> renameTodo(Todo todo, String name) async {
     await todos.renameTodo(todo, name);
     syncWorkspace();
+  }
+
+  Future<void> toggleTodo(Todo todo) async {
+    final updated = await todos.toggleDone(todo);
+    final fileId = updated?.todoFileId;
+    final categoryId = updated?.categoryId;
+    if (updated != null &&
+        workspace.selectedTodoId != null &&
+        fileId != null &&
+        categoryId != null) {
+      workspace.selectCategory(fileId: fileId, categoryId: categoryId);
+    }
+    syncWorkspace();
+    await persistCurrentFiles();
   }
 
   Future<void> deleteTodo(Todo todo) async {

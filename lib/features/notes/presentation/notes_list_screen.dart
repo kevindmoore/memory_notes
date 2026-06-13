@@ -430,7 +430,8 @@ class _NotesListScreenState extends State<NotesListScreen> {
                                       onTodoRename: (todo) => _showRenameTodoDialog(context, todo),
                                       onTodoDelete: (todo) =>
                                           widget.notesWorkspace.deleteTodo(todo),
-                                      onTodoToggle: (todo) => widget.todos.toggleDone(todo),
+                                      onTodoToggle: (todo) =>
+                                          widget.notesWorkspace.toggleTodo(todo),
                                       onSaveTodoNotes: _saveTodoNotes,
                                       onCategorySortMenu: () => _showCategorySortMenu(context),
                                       onTodoSortMenu: () => _showTodoSortMenu(context),
