@@ -192,6 +192,13 @@ class _NotesListScreenState extends State<NotesListScreen> {
     });
   }
 
+  Future<void> _toggleDesktopTodo(Todo todo) async {
+    final shouldScrollToTop = widget.notesWorkspace.workspace.selectedTodoId == todo.id;
+    await widget.notesWorkspace.toggleTodo(todo);
+    if (!mounted || !shouldScrollToTop) return;
+    setState(() => _todoListScrollToTopRequestId++);
+  }
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
@@ -430,8 +437,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
                                       onTodoRename: (todo) => _showRenameTodoDialog(context, todo),
                                       onTodoDelete: (todo) =>
                                           widget.notesWorkspace.deleteTodo(todo),
-                                      onTodoToggle: (todo) =>
-                                          widget.notesWorkspace.toggleTodo(todo),
+                                      onTodoToggle: _toggleDesktopTodo,
                                       onSaveTodoNotes: _saveTodoNotes,
                                       onCategorySortMenu: () => _showCategorySortMenu(context),
                                       onTodoSortMenu: () => _showTodoSortMenu(context),

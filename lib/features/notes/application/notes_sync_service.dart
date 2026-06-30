@@ -140,7 +140,19 @@ class NotesSyncService {
     if (_shouldSkipFileRefresh(payload)) {
       return;
     }
+    final previousFiles = List<TodoFile>.from(todoFiles.todoFiles.value);
+    final previousOpenFileIds = List<int>.from(workspace.openFileIds.value);
     await todoFiles.load();
+    todoFiles.todoFiles.value = reconcileFilesAfterRealtimeRefresh(
+      eventType: payload.eventType?.toString() ?? '',
+      previousFiles: previousFiles,
+      refreshedFiles: todoFiles.todoFiles.value,
+      previousOpenFileIds: previousOpenFileIds,
+      deletedFileId: _readInt(payload.oldRecord, 'id'),
+      newRecord: payload.newRecord is Map<String, dynamic>
+          ? Map<String, dynamic>.from(payload.newRecord)
+          : null,
+    );
     final allFileIds = todoFiles.todoFiles.value
         .where((file) => file.id != null)
         .map((file) => file.id!)
@@ -405,6 +417,48 @@ class NotesSyncService {
 
     final remoteFile = TodoFile.fromJson(newRecord);
     return localFile == remoteFile;
+  }
+
+  @visibleForTesting
+  static List<TodoFile> reconcileFilesAfterRealtimeRefresh({
+    required String eventType,
+    required List<TodoFile> previousFiles,
+    required List<TodoFile> refreshedFiles,
+    required List<int> previousOpenFileIds,
+    required int? deletedFileId,
+    required Map<String, dynamic>? newRecord,
+  }) {
+    if (previousFiles.isEmpty || previousOpenFileIds.isEmpty) {
+      return refreshedFiles;
+    }
+
+    final isDelete = eventType.contains('delete');
+    final allowedMissingOpenFileIds = <int>{
+      if (isDelete && deletedFileId != null) deletedFileId,
+    };
+    final refreshedFileIds = refreshedFiles.map((file) => file.id).whereType<int>().toSet();
+    final missingUnexpectedOpenFileIds = previousOpenFileIds.where(
+      (fileId) => !allowedMissingOpenFileIds.contains(fileId) && !refreshedFileIds.contains(fileId),
+    );
+    if (missingUnexpectedOpenFileIds.isEmpty) {
+      return refreshedFiles;
+    }
+
+    final filesById = <int, TodoFile>{
+      for (final file in previousFiles)
+        if (file.id != null && !allowedMissingOpenFileIds.contains(file.id)) file.id!: file,
+      for (final file in refreshedFiles)
+        if (file.id != null) file.id!: file,
+    };
+
+    if (!isDelete && newRecord != null) {
+      final remoteFile = TodoFile.fromJson(newRecord);
+      if (remoteFile.id != null) {
+        filesById[remoteFile.id!] = remoteFile;
+      }
+    }
+
+    return filesById.values.toList(growable: false);
   }
 
   @visibleForTesting

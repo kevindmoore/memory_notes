@@ -642,7 +642,7 @@ void main() {
       expect(deviceWorkspaceState.workspaceState.selectionsByFile[1]?.todoPath, [100]);
     });
 
-    test('toggleTodo clears the selected task for the current category', () async {
+    test('toggleTodo selects the parent when completing the selected child task', () async {
       final deviceWorkspaceState = _FakeDeviceWorkspaceStateRepository();
       final store = _buildStore(
         fileRepository: _FakeTodoFileRepository([
@@ -655,8 +655,8 @@ void main() {
         }),
         todoRepository: _FakeTodoRepository({
           10: const [
-            Todo(id: 100, name: 'First', todoFileId: 1, categoryId: 10),
-            Todo(id: 101, name: 'Second', todoFileId: 1, categoryId: 10),
+            Todo(id: 100, name: 'Parent', todoFileId: 1, categoryId: 10),
+            Todo(id: 101, name: 'Child', todoFileId: 1, categoryId: 10, parentTodoId: 100),
           ],
         }),
         deviceWorkspaceState: deviceWorkspaceState,
@@ -668,21 +668,27 @@ void main() {
       store.workspace.selectTodo(
         fileId: 1,
         categoryId: 10,
-        todoId: 100,
-        todoPath: const [100],
+        todoId: 101,
+        todoPath: const [100, 101],
       );
 
       await store.toggleTodo(
-        const Todo(id: 101, name: 'Second', todoFileId: 1, categoryId: 10),
+        const Todo(
+          id: 101,
+          name: 'Child',
+          todoFileId: 1,
+          categoryId: 10,
+          parentTodoId: 100,
+        ),
       );
 
       expect(store.workspace.selectedFileId, 1);
       expect(store.workspace.selectedCategoryId, 10);
-      expect(store.workspace.selectedTodoId, isNull);
-      expect(store.workspace.selectedTodoPath, isEmpty);
+      expect(store.workspace.selectedTodoId, 100);
+      expect(store.workspace.selectedTodoPath, [100]);
       expect(store.todos.getTodosForCategory(10).singleWhere((todo) => todo.id == 101).done, true);
-      expect(deviceWorkspaceState.workspaceState.selectionsByFile[1]?.todoId, isNull);
-      expect(deviceWorkspaceState.workspaceState.selectionsByFile[1]?.todoPath, isEmpty);
+      expect(deviceWorkspaceState.workspaceState.selectionsByFile[1]?.todoId, 100);
+      expect(deviceWorkspaceState.workspaceState.selectionsByFile[1]?.todoPath, [100]);
     });
 
     test('reloadFile refreshes categories and todos for that list from the repository', () async {

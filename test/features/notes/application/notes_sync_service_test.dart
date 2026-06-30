@@ -47,6 +47,48 @@ void main() {
       expect(shouldSkip, isFalse);
     });
 
+    test('realtime file refresh preserves open files missing from a non-delete refresh', () {
+      final result = NotesSyncService.reconcileFilesAfterRealtimeRefresh(
+        eventType: 'PostgresChangeEvent.update',
+        previousFiles: const [
+          TodoFile(id: 1, name: 'Alpha'),
+          TodoFile(id: 2, name: 'Beta'),
+          TodoFile(id: 3, name: 'Gamma'),
+        ],
+        refreshedFiles: const [
+          TodoFile(id: 2, name: 'Beta Updated'),
+        ],
+        previousOpenFileIds: const [1, 2, 3],
+        deletedFileId: null,
+        newRecord: {
+          'id': 2,
+          'name': 'Beta Updated',
+        },
+      );
+
+      expect(result.map((file) => file.id).toList(), [1, 2, 3]);
+      expect(result.where((file) => file.id == 2).single.name, 'Beta Updated');
+    });
+
+    test('realtime file delete only removes the deleted open file', () {
+      final result = NotesSyncService.reconcileFilesAfterRealtimeRefresh(
+        eventType: 'PostgresChangeEvent.delete',
+        previousFiles: const [
+          TodoFile(id: 1, name: 'Alpha'),
+          TodoFile(id: 2, name: 'Beta'),
+          TodoFile(id: 3, name: 'Gamma'),
+        ],
+        refreshedFiles: const [
+          TodoFile(id: 3, name: 'Gamma'),
+        ],
+        previousOpenFileIds: const [1, 2, 3],
+        deletedFileId: 2,
+        newRecord: null,
+      );
+
+      expect(result.map((file) => file.id).toList(), [1, 3]);
+    });
+
     test('skips category delete when category is already gone locally', () {
       final shouldSkip = NotesSyncService.shouldSkipCategoryRefresh(
         eventType: 'PostgresChangeEvent.delete',

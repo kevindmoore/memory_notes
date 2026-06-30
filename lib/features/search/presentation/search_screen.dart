@@ -130,12 +130,6 @@ class _SearchScreenState extends State<SearchScreen> {
           ),
           Expanded(
             child: Watch((context) {
-              if (widget.search.isLoading.value) {
-                return const Center(
-                  child: CircularProgressIndicator(color: AppColors.accent),
-                );
-              }
-
               final q = _query.value;
 
               if (q.isEmpty) {
@@ -152,6 +146,12 @@ class _SearchScreenState extends State<SearchScreen> {
                           style: TextStyle(color: AppColors.textDisabled, fontSize: 13)),
                     ],
                   ),
+                );
+              }
+
+              if (widget.search.isLoading.value) {
+                return const Center(
+                  child: CircularProgressIndicator(color: AppColors.accent),
                 );
               }
 

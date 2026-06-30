@@ -451,10 +451,22 @@ class NotesWorkspaceStore {
     final fileId = updated?.todoFileId;
     final categoryId = updated?.categoryId;
     if (updated != null &&
-        workspace.selectedTodoId != null &&
+        workspace.selectedTodoId == updated.id &&
         fileId != null &&
         categoryId != null) {
-      workspace.selectCategory(fileId: fileId, categoryId: categoryId);
+      final parentPath = workspace.selectedTodoPath.take(
+        workspace.selectedTodoPath.length - 1,
+      ).toList();
+      if (parentPath.isEmpty) {
+        workspace.selectCategory(fileId: fileId, categoryId: categoryId);
+      } else {
+        workspace.selectTodo(
+          fileId: fileId,
+          categoryId: categoryId,
+          todoId: parentPath.last,
+          todoPath: parentPath,
+        );
+      }
     }
     syncWorkspace();
     await persistCurrentFiles();

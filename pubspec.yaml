@@ -13,7 +13,7 @@ dependencies:
     sdk: flutter
 
   # State Management
-  signals: ^6.3.1
+  signals: ^7.1.0
 
   # Navigation
   auto_route: ^11.1.0
