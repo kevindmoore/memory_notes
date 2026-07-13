@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:memory_notes/features/notes/application/notes_query_service.dart';
 import 'package:memory_notes/features/notes/data/models.dart';
+import 'package:memory_notes/features/notes/models/category_sort_order.dart';
 import 'package:memory_notes/features/notes/models/notes_sort_order.dart';
 import 'package:memory_notes/features/notes/models/todo_sort_order.dart';
 
@@ -63,6 +64,50 @@ void main() {
       expect(result.map((file) => file.id).toList(), [3, 1, 2]);
     });
 
+    test('sortFiles lastUpdated falls back to createdAt when lastUpdated is missing', () {
+      final files = [
+        TodoFile(
+          name: 'Older',
+          id: 1,
+          createdAt: DateTime(2024, 1, 1),
+        ),
+        TodoFile(
+          name: 'Newer',
+          id: 2,
+          createdAt: DateTime(2024, 5, 1),
+        ),
+      ];
+
+      final result = service.sortFiles(
+        files,
+        sortOrder: NotesSortOrder.lastUpdated,
+      );
+
+      expect(result.map((file) => file.id).toList(), [2, 1]);
+    });
+
+    test('sortCategories newest falls back to createdAt when lastUpdated is missing', () {
+      final older = Category(
+        id: 1,
+        name: 'Older',
+        todoFileId: 100,
+        createdAt: DateTime(2024, 1, 1),
+      );
+      final newer = Category(
+        id: 2,
+        name: 'Newer',
+        todoFileId: 100,
+        createdAt: DateTime(2024, 5, 1),
+      );
+
+      final result = service.sortCategories(
+        [older, newer],
+        sortOrder: CategorySortOrder.newest,
+      );
+
+      expect(result.map((category) => category.id).toList(), [2, 1]);
+    });
+
     test('buildAncestorTodoIds and breadcrumb reflect nested todo hierarchy', () {
       const root = Todo(
         id: 10,
@@ -119,6 +164,28 @@ void main() {
       );
 
       expect(result.map((t) => t.id).toList(), [2, 1]);
+    });
+
+    test('sortTodos newest falls back to createdAt when lastUpdated is missing', () {
+      final older = Todo(
+        id: 1,
+        name: 'Older',
+        categoryId: 100,
+        createdAt: DateTime(2024, 1, 1),
+      );
+      final newer = Todo(
+        id: 2,
+        name: 'Newer',
+        categoryId: 100,
+        createdAt: DateTime(2024, 5, 1),
+      );
+
+      final result = service.sortTodos(
+        [older, newer],
+        sortOrder: TodoSortOrder.newest,
+      );
+
+      expect(result.map((todo) => todo.id).toList(), [2, 1]);
     });
 
     test('sortTodos nameAZ orders alphabetically', () {

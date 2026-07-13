@@ -39,13 +39,12 @@ class _SearchScreenState extends State<SearchScreen> {
   final _searchCtrl = TextEditingController();
   final _query = signal('');
   bool _didPreload = false;
+  bool _isPreparingSearch = true;
 
   @override
   void initState() {
     super.initState();
-    _searchCtrl.addListener(
-      () => _query.value = _searchCtrl.text.trim().toLowerCase(),
-    );
+    _searchCtrl.addListener(() => _query.value = _searchCtrl.text.trim().toLowerCase());
   }
 
   @override
@@ -53,7 +52,21 @@ class _SearchScreenState extends State<SearchScreen> {
     super.didChangeDependencies();
     if (_didPreload) return;
     _didPreload = true;
-    widget.search.preload();
+    _preload();
+  }
+
+  Future<void> _preload() async {
+    try {
+      await widget.notesWorkspace.initialize();
+      if (!mounted) return;
+      await widget.search.preload(
+        openFileIds: widget.notesWorkspace.workspace.openFileIds.value,
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isPreparingSearch = false);
+      }
+    }
   }
 
   @override
@@ -89,27 +102,33 @@ class _SearchScreenState extends State<SearchScreen> {
                   child: Icon(Icons.search_rounded, color: AppColors.textDisabled, size: 20),
                 ),
                 prefixIconConstraints: const BoxConstraints(minWidth: 0),
-                suffixIcon: Watch((context) => Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        SpeechMicButton(
-                          controller: _searchCtrl,
-                          speech: widget.speech,
-                          appendToExistingText: false,
-                          onError: (message) => ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text(message)),
+                suffixIcon: SignalBuilder(
+                  builder: (context) => Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SpeechMicButton(
+                        controller: _searchCtrl,
+                        speech: widget.speech,
+                        appendToExistingText: false,
+                        onError: (message) => ScaffoldMessenger.of(
+                          context,
+                        ).showSnackBar(SnackBar(content: Text(message))),
+                      ),
+                      if (_query.value.isNotEmpty)
+                        IconButton(
+                          icon: const Icon(
+                            Icons.close_rounded,
+                            color: AppColors.textDisabled,
+                            size: 18,
                           ),
+                          onPressed: () {
+                            _searchCtrl.clear();
+                            _query.value = '';
+                          },
                         ),
-                        if (_query.value.isNotEmpty)
-                          IconButton(
-                            icon: const Icon(Icons.close_rounded, color: AppColors.textDisabled, size: 18),
-                            onPressed: () {
-                              _searchCtrl.clear();
-                              _query.value = '';
-                            },
-                          ),
-                      ],
-                    )),
+                    ],
+                  ),
+                ),
                 fillColor: AppColors.surfaceVariant,
                 filled: true,
                 border: OutlineInputBorder(
@@ -129,87 +148,100 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
           ),
           Expanded(
-            child: Watch((context) {
-              final q = _query.value;
+            child: SignalBuilder(
+              builder: (context) {
+                final q = _query.value;
 
-              if (q.isEmpty) {
-                return const Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.search_rounded, size: 56, color: AppColors.textDisabled),
-                      SizedBox(height: 16),
-                      Text('Search your notes',
-                          style: TextStyle(color: AppColors.textSecondary, fontSize: 16)),
-                      SizedBox(height: 6),
-                      Text('Type to find lists, categories and tasks',
-                          style: TextStyle(color: AppColors.textDisabled, fontSize: 13)),
-                    ],
-                  ),
-                );
-              }
-
-              if (widget.search.isLoading.value) {
-                return const Center(
-                  child: CircularProgressIndicator(color: AppColors.accent),
-                );
-              }
-
-              final results = widget.search.buildResults(q);
-
-              if (results.isEmpty) {
-                return Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.search_off_rounded, size: 48, color: AppColors.textDisabled),
-                      const SizedBox(height: 16),
-                      Text(
-                        'No results for "$q"',
-                        style: const TextStyle(
-                          color: AppColors.textPrimary,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
+                if (q.isEmpty) {
+                  return const Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.search_rounded, size: 56, color: AppColors.textDisabled),
+                        SizedBox(height: 16),
+                        Text(
+                          'Search your notes',
+                          style: TextStyle(color: AppColors.textSecondary, fontSize: 16),
                         ),
-                      ),
-                      const SizedBox(height: 6),
-                      const Text('Try a different search term',
-                          style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
-                    ],
-                  ),
-                );
-              }
+                        SizedBox(height: 6),
+                        Text(
+                          'Type to find lists, categories and tasks',
+                          style: TextStyle(color: AppColors.textDisabled, fontSize: 13),
+                        ),
+                      ],
+                    ),
+                  );
+                }
 
-              return ListView.builder(
-                padding: const EdgeInsets.only(top: 8, bottom: 32),
-                itemCount: results.length,
-                itemBuilder: (context, resultIndex) =>
-                    _buildResultTile(context, results[resultIndex]),
-              );
-            }),
+                if (_isPreparingSearch || widget.search.isLoading.value) {
+                  return const Center(child: CircularProgressIndicator(color: AppColors.accent));
+                }
+
+                final openFileIds = widget.notesWorkspace.query.normalizeFileIds(
+                  widget.notesWorkspace.workspace.openFileIds.value,
+                  widget.search.todoFiles.todoFiles.value,
+                );
+                final results = widget.search.buildResults(q, openFileIds: openFileIds);
+
+                if (results.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.search_off_rounded,
+                          size: 48,
+                          color: AppColors.textDisabled,
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'No results for "$q"',
+                          style: const TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          'Try a different search term',
+                          style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+
+                return ListView.builder(
+                  padding: const EdgeInsets.only(top: 8, bottom: 32),
+                  itemCount: results.length,
+                  itemBuilder: (context, resultIndex) =>
+                      _buildResultTile(context, results[resultIndex], q),
+                );
+              },
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildResultTile(BuildContext context, SearchResultItem result) {
+  Widget _buildResultTile(BuildContext context, SearchResultItem result, String query) {
     return switch (result) {
       SearchFileResultItem(file: final file) => ListTile(
-          leading: Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: AppColors.accentDim,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Icon(Icons.folder_rounded, color: AppColors.accent, size: 20),
+        leading: Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            color: AppColors.accentDim,
+            borderRadius: BorderRadius.circular(8),
           ),
-          title: _HighlightedText(text: file.name, query: _query.value),
-          subtitle:
-              const Text('List', style: TextStyle(color: AppColors.textDisabled, fontSize: 12)),
-          onTap: () => _openFileResult(context, file),
+          child: const Icon(Icons.folder_rounded, color: AppColors.accent, size: 20),
         ),
+        title: _HighlightedText(text: file.name, query: query),
+        subtitle: const Text('List', style: TextStyle(color: AppColors.textDisabled, fontSize: 12)),
+        onTap: () => _openFileResult(context, file),
+      ),
       SearchCategoryResultItem(
         category: final category,
         parentFile: final file,
@@ -225,9 +257,11 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
             child: const Icon(Icons.folder_open_rounded, color: AppColors.accent, size: 20),
           ),
-          title: _HighlightedText(text: category.name, query: _query.value),
-          subtitle: Text(subtitle,
-              style: const TextStyle(color: AppColors.textDisabled, fontSize: 12)),
+          title: _HighlightedText(text: category.name, query: query),
+          subtitle: Text(
+            subtitle,
+            style: const TextStyle(color: AppColors.textDisabled, fontSize: 12),
+          ),
           onTap: () => _openCategoryResult(context, file: file, category: category),
         ),
       SearchTodoResultItem(
@@ -252,8 +286,8 @@ class _SearchScreenState extends State<SearchScreen> {
               size: 20,
             ),
           ),
-          title: _HighlightedText(text: todo.name, query: _query.value),
-          subtitle: _buildTodoSubtitle(subtitle, _query.value),
+          title: _HighlightedText(text: todo.name, query: query),
+          subtitle: _buildTodoSubtitle(subtitle, query),
           onTap: () => _openTodoResult(
             context,
             file: file,
@@ -272,7 +306,7 @@ class _SearchScreenState extends State<SearchScreen> {
     if (_usesWorkspaceSelection(context)) {
       await widget.notesWorkspace.openFile(file);
       if (!context.mounted) return;
-      AutoTabsRouter.of(context).setActiveIndex(0);
+      AutoTabsRouter.of(context).navigate(const NotesTabRoute());
       return;
     }
     context.router.push(_buildNoteDetailRoute(fileId));
@@ -291,7 +325,7 @@ class _SearchScreenState extends State<SearchScreen> {
       await widget.notesWorkspace.openFile(file);
       await widget.notesWorkspace.selectCategory(file: file, category: category);
       if (!context.mounted) return;
-      AutoTabsRouter.of(context).setActiveIndex(0);
+      AutoTabsRouter.of(context).navigate(const NotesTabRoute());
       return;
     }
     context.router.pushAll([
@@ -315,13 +349,9 @@ class _SearchScreenState extends State<SearchScreen> {
     final todoPath = <int>[...ancestorTodoIds, todoId];
     if (_usesWorkspaceSelection(context)) {
       await widget.notesWorkspace.openFile(file);
-      widget.notesWorkspace.selectTodo(
-        fileId: fileId,
-        categoryId: categoryId,
-        todoPath: todoPath,
-      );
+      widget.notesWorkspace.selectTodo(fileId: fileId, categoryId: categoryId, todoPath: todoPath);
       if (!context.mounted) return;
-      AutoTabsRouter.of(context).setActiveIndex(0);
+      AutoTabsRouter.of(context).navigate(const NotesTabRoute());
       return;
     }
     final routes = <PageRouteInfo>[
@@ -441,11 +471,7 @@ class _HighlightedText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final words = query
-        .trim()
-        .split(RegExp(r'\s+'))
-        .where((w) => w.isNotEmpty)
-        .toList();
+    final words = query.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
 
     if (words.isEmpty) return Text(text, style: baseStyle);
 
@@ -477,10 +503,7 @@ class _HighlightedText extends StatelessWidget {
       }
     }
 
-    final highlightStyle = baseStyle.copyWith(
-      color: AppColors.accent,
-      fontWeight: FontWeight.w700,
-    );
+    final highlightStyle = baseStyle.copyWith(color: AppColors.accent, fontWeight: FontWeight.w700);
 
     final spans = <TextSpan>[];
     var pos = 0;

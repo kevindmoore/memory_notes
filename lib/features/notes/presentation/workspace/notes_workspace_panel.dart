@@ -47,9 +47,11 @@ class DesktopNotesPanel extends StatelessWidget {
     required this.categoryTaskCounts,
     required this.category,
     required this.todos,
+    required this.todoLoadError,
     required this.todoSortOrder,
     required this.selectedTodo,
     required this.selectedTodoPath,
+    required this.selectedTodoRevealRequestId,
     required this.todoNotesFocusRequestId,
     required this.todoListScrollToTopRequestId,
     required this.expandedTodoId,
@@ -73,9 +75,11 @@ class DesktopNotesPanel extends StatelessWidget {
   final Map<int, int> categoryTaskCounts;
   final Category? category;
   final List<Todo> todos;
+  final String? todoLoadError;
   final TodoSortOrder todoSortOrder;
   final Todo? selectedTodo;
   final List<int> selectedTodoPath;
+  final int selectedTodoRevealRequestId;
   final int todoNotesFocusRequestId;
   final int todoListScrollToTopRequestId;
   final Signal<int?> expandedTodoId;
@@ -273,8 +277,10 @@ class DesktopNotesPanel extends StatelessWidget {
                             child: DesktopTodoDrilldown(
                               category: category!,
                               todos: todos,
+                              loadError: todoLoadError,
                               todoSortOrder: todoSortOrder,
                               selectedTodoPath: selectedTodoPath,
+                              selectedTodoRevealRequestId: selectedTodoRevealRequestId,
                               expandedTodoId: expandedTodoId,
                               selectedTodo: selectedTodo,
                               scrollToTopRequestId: todoListScrollToTopRequestId,

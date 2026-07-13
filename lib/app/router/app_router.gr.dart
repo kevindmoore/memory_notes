@@ -11,11 +11,27 @@
 part of 'app_router.dart';
 
 /// generated route for
+/// [InstantNotesTabPage]
+class InstantNotesTabRoute extends PageRouteInfo<void> {
+  const InstantNotesTabRoute({List<PageRouteInfo>? children})
+    : super(InstantNotesTabRoute.name, initialChildren: children);
+
+  static const String name = 'InstantNotesTabRoute';
+
+  static PageInfo page = PageInfo(
+    name,
+    builder: (data) {
+      return const InstantNotesTabPage();
+    },
+  );
+}
+
+/// generated route for
 /// [LoginScreen]
 class LoginRoute extends PageRouteInfo<LoginRouteArgs> {
   LoginRoute({
-    required OnLoginResult onResult,
-    required AuthController auth,
+    OnLoginResult? onResult,
+    AuthController? auth,
     Key? key,
     List<PageRouteInfo>? children,
   }) : super(
@@ -29,7 +45,9 @@ class LoginRoute extends PageRouteInfo<LoginRouteArgs> {
   static PageInfo page = PageInfo(
     name,
     builder: (data) {
-      final args = data.argsAs<LoginRouteArgs>();
+      final args = data.argsAs<LoginRouteArgs>(
+        orElse: () => const LoginRouteArgs(),
+      );
       return LoginScreen(
         onResult: args.onResult,
         auth: args.auth,
@@ -40,11 +58,11 @@ class LoginRoute extends PageRouteInfo<LoginRouteArgs> {
 }
 
 class LoginRouteArgs {
-  const LoginRouteArgs({required this.onResult, required this.auth, this.key});
+  const LoginRouteArgs({this.onResult, this.auth, this.key});
 
-  final OnLoginResult onResult;
+  final OnLoginResult? onResult;
 
-  final AuthController auth;
+  final AuthController? auth;
 
   final Key? key;
 
@@ -52,6 +70,16 @@ class LoginRouteArgs {
   String toString() {
     return 'LoginRouteArgs{onResult: $onResult, auth: $auth, key: $key}';
   }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! LoginRouteArgs) return false;
+    return onResult == other.onResult && auth == other.auth && key == other.key;
+  }
+
+  @override
+  int get hashCode => onResult.hashCode ^ auth.hashCode ^ key.hashCode;
 }
 
 /// generated route for
@@ -139,6 +167,27 @@ class NoteDetailRouteArgs {
   String toString() {
     return 'NoteDetailRouteArgs{fileId: $fileId, notesMobile: $notesMobile, noteDetailActions: $noteDetailActions, noteEditActions: $noteEditActions, speech: $speech, key: $key}';
   }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! NoteDetailRouteArgs) return false;
+    return fileId == other.fileId &&
+        notesMobile == other.notesMobile &&
+        noteDetailActions == other.noteDetailActions &&
+        noteEditActions == other.noteEditActions &&
+        speech == other.speech &&
+        key == other.key;
+  }
+
+  @override
+  int get hashCode =>
+      fileId.hashCode ^
+      notesMobile.hashCode ^
+      noteDetailActions.hashCode ^
+      noteEditActions.hashCode ^
+      speech.hashCode ^
+      key.hashCode;
 }
 
 /// generated route for
@@ -228,6 +277,33 @@ class NoteEditRouteArgs {
   String toString() {
     return 'NoteEditRouteArgs{fileId: $fileId, categoryId: $categoryId, parentTodoId: $parentTodoId, focusedTodoId: $focusedTodoId, openFocusedTodoNotes: $openFocusedTodoNotes, notesMobile: $notesMobile, noteEditActions: $noteEditActions, speech: $speech, key: $key}';
   }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! NoteEditRouteArgs) return false;
+    return fileId == other.fileId &&
+        categoryId == other.categoryId &&
+        parentTodoId == other.parentTodoId &&
+        focusedTodoId == other.focusedTodoId &&
+        openFocusedTodoNotes == other.openFocusedTodoNotes &&
+        notesMobile == other.notesMobile &&
+        noteEditActions == other.noteEditActions &&
+        speech == other.speech &&
+        key == other.key;
+  }
+
+  @override
+  int get hashCode =>
+      fileId.hashCode ^
+      categoryId.hashCode ^
+      parentTodoId.hashCode ^
+      focusedTodoId.hashCode ^
+      openFocusedTodoNotes.hashCode ^
+      notesMobile.hashCode ^
+      noteEditActions.hashCode ^
+      speech.hashCode ^
+      key.hashCode;
 }
 
 /// generated route for
@@ -316,6 +392,33 @@ class NotesListRouteArgs {
   String toString() {
     return 'NotesListRouteArgs{notesWorkspace: $notesWorkspace, todoFiles: $todoFiles, todos: $todos, notesListActions: $notesListActions, noteDetailActions: $noteDetailActions, notesMobile: $notesMobile, noteEditActions: $noteEditActions, speech: $speech, key: $key}';
   }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! NotesListRouteArgs) return false;
+    return notesWorkspace == other.notesWorkspace &&
+        todoFiles == other.todoFiles &&
+        todos == other.todos &&
+        notesListActions == other.notesListActions &&
+        noteDetailActions == other.noteDetailActions &&
+        notesMobile == other.notesMobile &&
+        noteEditActions == other.noteEditActions &&
+        speech == other.speech &&
+        key == other.key;
+  }
+
+  @override
+  int get hashCode =>
+      notesWorkspace.hashCode ^
+      todoFiles.hashCode ^
+      todos.hashCode ^
+      notesListActions.hashCode ^
+      noteDetailActions.hashCode ^
+      notesMobile.hashCode ^
+      noteEditActions.hashCode ^
+      speech.hashCode ^
+      key.hashCode;
 }
 
 /// generated route for
@@ -408,6 +511,29 @@ class SearchRouteArgs {
   String toString() {
     return 'SearchRouteArgs{search: $search, notesMobile: $notesMobile, notesWorkspace: $notesWorkspace, noteDetailActions: $noteDetailActions, noteEditActions: $noteEditActions, speech: $speech, key: $key}';
   }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! SearchRouteArgs) return false;
+    return search == other.search &&
+        notesMobile == other.notesMobile &&
+        notesWorkspace == other.notesWorkspace &&
+        noteDetailActions == other.noteDetailActions &&
+        noteEditActions == other.noteEditActions &&
+        speech == other.speech &&
+        key == other.key;
+  }
+
+  @override
+  int get hashCode =>
+      search.hashCode ^
+      notesMobile.hashCode ^
+      notesWorkspace.hashCode ^
+      noteDetailActions.hashCode ^
+      noteEditActions.hashCode ^
+      speech.hashCode ^
+      key.hashCode;
 }
 
 /// generated route for
@@ -461,6 +587,16 @@ class SettingsRouteArgs {
   String toString() {
     return 'SettingsRouteArgs{auth: $auth, key: $key}';
   }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! SettingsRouteArgs) return false;
+    return auth == other.auth && key == other.key;
+  }
+
+  @override
+  int get hashCode => auth.hashCode ^ key.hashCode;
 }
 
 /// generated route for

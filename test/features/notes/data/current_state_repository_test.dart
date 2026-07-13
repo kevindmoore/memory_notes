@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:memory_notes/features/notes/data/models.dart';
 import 'package:memory_notes/features/notes/data/repositories.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   group('CurrentStateRepository.selectLatestCurrentState', () {
@@ -66,6 +67,41 @@ void main() {
       );
 
       expect(selected, isNull);
+    });
+  });
+
+  group('DeviceWorkspaceStateRepository', () {
+    test('falls back to legacy device workspace state when user-scoped state is empty', () async {
+      SharedPreferences.setMockInitialValues({
+        'device_workspace_state': '{"openFileIds":[1,2,3],"selectedFileId":2}',
+      });
+      final prefs = await SharedPreferences.getInstance();
+      final repository = DeviceWorkspaceStateRepository(
+        currentUserId: () => 'user-a',
+        prefs: prefs,
+      );
+
+      final state = await repository.getWorkspaceState();
+
+      expect(state.openFileIds, [1, 2, 3]);
+      expect(state.selectedFileId, 2);
+    });
+
+    test('prefers user-scoped device workspace state when it exists', () async {
+      SharedPreferences.setMockInitialValues({
+        'device_workspace_state': '{"openFileIds":[1,2,3],"selectedFileId":2}',
+        'device_workspace_state_user-a': '{"openFileIds":[4],"selectedFileId":4}',
+      });
+      final prefs = await SharedPreferences.getInstance();
+      final repository = DeviceWorkspaceStateRepository(
+        currentUserId: () => 'user-a',
+        prefs: prefs,
+      );
+
+      final state = await repository.getWorkspaceState();
+
+      expect(state.openFileIds, [4]);
+      expect(state.selectedFileId, 4);
     });
   });
 }

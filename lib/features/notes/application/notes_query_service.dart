@@ -115,7 +115,7 @@ class NotesQueryService {
         case CategorySortOrder.nameZA:
           return b.name.toLowerCase().compareTo(a.name.toLowerCase());
         case CategorySortOrder.newest:
-          return (b.lastUpdated ?? DateTime(0)).compareTo(a.lastUpdated ?? DateTime(0));
+          return _categoryModifiedAt(b).compareTo(_categoryModifiedAt(a));
         case CategorySortOrder.todoCount:
           final countComparison = topLevelTodoCount(
             todosByCategory,
@@ -164,8 +164,8 @@ class NotesQueryService {
           if (byName != 0) return byName;
           return _compareTodoIdTieBreak(a, b);
         case TodoSortOrder.newest:
-          final aDate = a.lastUpdated ?? DateTime(0);
-          final bDate = b.lastUpdated ?? DateTime(0);
+          final aDate = _todoModifiedAt(a);
+          final bDate = _todoModifiedAt(b);
           final byDate = bDate.compareTo(aDate);
           if (byDate != 0) return byDate;
           return _compareTodoIdTieBreak(a, b);
@@ -235,11 +235,23 @@ class NotesQueryService {
       case NotesSortOrder.nameZA:
         return b.name.toLowerCase().compareTo(a.name.toLowerCase());
       case NotesSortOrder.newest:
-        return (b.lastUpdated ?? DateTime(0)).compareTo(a.lastUpdated ?? DateTime(0));
+        return _fileModifiedAt(b).compareTo(_fileModifiedAt(a));
       case NotesSortOrder.oldest:
-        return (a.lastUpdated ?? DateTime(0)).compareTo(b.lastUpdated ?? DateTime(0));
+        return _fileModifiedAt(a).compareTo(_fileModifiedAt(b));
       case NotesSortOrder.lastUpdated:
-        return (b.lastUpdated ?? DateTime(0)).compareTo(a.lastUpdated ?? DateTime(0));
+        return _fileModifiedAt(b).compareTo(_fileModifiedAt(a));
     }
+  }
+
+  DateTime _fileModifiedAt(TodoFile file) {
+    return file.lastUpdated ?? file.createdAt ?? DateTime(0);
+  }
+
+  DateTime _categoryModifiedAt(Category category) {
+    return category.lastUpdated ?? category.createdAt ?? DateTime(0);
+  }
+
+  DateTime _todoModifiedAt(Todo todo) {
+    return todo.lastUpdated ?? todo.createdAt ?? DateTime(0);
   }
 }

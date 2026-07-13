@@ -43,14 +43,7 @@ class SpeechController {
         onStatus: (nextStatus) {
           logMessage('SpeechController status: $nextStatus');
           if (nextStatus == 'done' || nextStatus == 'notListening') {
-            _setStatus(SpeechStatus.idle);
-            Future<void>.delayed(const Duration(milliseconds: 1000), () {
-              if (status.value == SpeechStatus.idle &&
-                  lastRecognizedText.value.trim().isNotEmpty) {
-                _completionController.add(null);
-                activeOwner.value = null;
-              }
-            });
+            _completeListening();
           }
         },
       );
@@ -92,9 +85,15 @@ class SpeechController {
           logMessage('SpeechController recognized text: $text');
           lastRecognizedText.value = text;
           _recognizedTextController.add(text);
+          if (result.finalResult) {
+            _completeListening();
+          }
         },
         listenOptions: stt.SpeechListenOptions(
-          listenMode: stt.ListenMode.confirmation,
+          partialResults: true,
+          listenFor: const Duration(minutes: 2),
+          pauseFor: const Duration(seconds: 8),
+          listenMode: stt.ListenMode.dictation,
         ),
       );
 
@@ -135,6 +134,18 @@ class SpeechController {
     activeOwner.value = null;
     _setStatus(SpeechStatus.error);
     errorMessage.value = message;
+  }
+
+  void _completeListening() {
+    _setStatus(SpeechStatus.idle);
+    Future<void>.delayed(const Duration(milliseconds: 1000), () {
+      if (status.value == SpeechStatus.idle) {
+        if (lastRecognizedText.value.trim().isNotEmpty && !_completionController.isClosed) {
+          _completionController.add(null);
+        }
+        activeOwner.value = null;
+      }
+    });
   }
 
   void _setStatus(SpeechStatus nextStatus) {

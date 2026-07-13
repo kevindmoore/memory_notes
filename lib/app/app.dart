@@ -29,17 +29,20 @@ class _MemoryNotesAppState extends State<MemoryNotesApp> {
 
   @override
   Widget build(BuildContext context) {
-    return StartupWrapper(
-      auth: widget.services.auth,
-      preloadAllData: widget.services.preloadAllData,
-      initializeSync: widget.services.notesSync.initialize,
-      child: MaterialApp.router(
-        scaffoldMessengerKey: scaffoldMessengerKey,
-        routerConfig: _router.config(),
-        title: 'Memory Notes',
-        debugShowCheckedModeBanner: false,
-        theme: buildAppTheme(),
-      ),
+    return MaterialApp.router(
+      scaffoldMessengerKey: scaffoldMessengerKey,
+      routerConfig: _router.config(),
+      title: 'Memory Notes',
+      debugShowCheckedModeBanner: false,
+      theme: buildAppTheme(),
+      builder: (context, child) {
+        return StartupWrapper(
+          auth: widget.services.auth,
+          preloadAllData: widget.services.preloadAllData,
+          initializeSync: widget.services.notesSync.initialize,
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
     );
   }
 }

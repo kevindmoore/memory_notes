@@ -7,18 +7,14 @@ import 'package:signals/signals.dart';
 
 class TodoController {
   final TodoRepository _todoRepo;
-  final CategoryController? _categories;
-  final TodoFileController? _todoFiles;
+  final CategoryController? categories;
+  final TodoFileController? todoFiles;
 
-  TodoController(
-    this._todoRepo, {
-    CategoryController? categories,
-    TodoFileController? todoFiles,
-  })  : _categories = categories,
-        _todoFiles = todoFiles;
+  TodoController(this._todoRepo, {this.categories, this.todoFiles});
 
   final todosByCategory = mapSignal<int, List<Todo>>({});
   final loadedTodoCategoryIds = listSignal<int>([]);
+  final error = signal<String?>(null);
   DateTime? _lastLoadFailureAt;
   static const _loadFailureRetryDelay = Duration(seconds: 20);
 
@@ -34,16 +30,45 @@ class TodoController {
       if (!loadedTodoCategoryIds.contains(categoryId)) {
         loadedTodoCategoryIds.add(categoryId);
       }
+      error.value = null;
       _lastLoadFailureAt = null;
       return true;
     } catch (e) {
       logError('TodoController.loadTodos: $e');
+      error.value = e.toString();
       _lastLoadFailureAt = DateTime.now();
       return false;
     }
   }
 
   List<Todo> getTodosForCategory(int categoryId) => todosByCategory[categoryId] ?? [];
+
+  void applyRemoteTodo(Todo todo) {
+    final categoryId = todo.categoryId;
+    final todoId = todo.id;
+    if (categoryId == null || todoId == null) return;
+
+    for (final entry in todosByCategory.value.entries) {
+      if (entry.key == categoryId) continue;
+      final current = List<Todo>.from(entry.value);
+      current.removeWhere((item) => item.id == todoId);
+      todosByCategory[entry.key] = current;
+    }
+
+    if (!loadedTodoCategoryIds.contains(categoryId) &&
+        !todosByCategory.value.containsKey(categoryId)) {
+      return;
+    }
+
+    final current = List<Todo>.from(todosByCategory[categoryId] ?? const <Todo>[]);
+    final index = current.indexWhere((item) => item.id == todoId);
+    if (index == -1) {
+      current.add(todo);
+    } else {
+      current[index] = todo;
+    }
+    todosByCategory[categoryId] = current;
+  }
 
   Future<Todo?> addTodo(
     int todoFileId,
@@ -74,10 +99,7 @@ class TodoController {
         final current = List<Todo>.from(todosByCategory[categoryId] ?? []);
         current.add(created);
         todosByCategory[categoryId] = current;
-        await _touchAncestors(
-          todo: created,
-          timestamp: created.lastUpdated ?? DateTime.now(),
-        );
+        await _touchAncestors(todo: created, timestamp: created.lastUpdated ?? DateTime.now());
       }
       return created;
     } catch (e) {
@@ -95,10 +117,11 @@ class TodoController {
         todo.categoryId!,
       );
       if (updated != null) {
-        _replaceTodo(updated);
-        await _touchAncestors(todo: updated, timestamp: timestamp);
+        final resolved = _withFallbackLinks(updated, todo);
+        _replaceTodo(resolved);
+        await _touchAncestors(todo: resolved, timestamp: timestamp);
       }
-      return updated;
+      return updated == null ? null : _withFallbackLinks(updated, todo);
     } catch (e) {
       logError('TodoController.toggleDone: $e');
     }
@@ -118,10 +141,11 @@ class TodoController {
         todo.categoryId!,
       );
       if (updated != null) {
-        _replaceTodo(updated);
-        await _touchAncestors(todo: updated, timestamp: timestamp);
+        final resolved = _withFallbackLinks(updated, todo);
+        _replaceTodo(resolved);
+        await _touchAncestors(todo: resolved, timestamp: timestamp);
       }
-      return updated;
+      return updated == null ? null : _withFallbackLinks(updated, todo);
     } catch (e) {
       logError('TodoController.updateTodo: $e');
     }
@@ -140,10 +164,11 @@ class TodoController {
         todo.categoryId!,
       );
       if (updated != null) {
-        _replaceTodo(updated);
-        await _touchAncestors(todo: updated, timestamp: timestamp);
+        final resolved = _withFallbackLinks(updated, todo);
+        _replaceTodo(resolved);
+        await _touchAncestors(todo: resolved, timestamp: timestamp);
       }
-      return updated;
+      return updated == null ? null : _withFallbackLinks(updated, todo);
     } catch (e) {
       logError('TodoController.renameTodo: $e');
     }
@@ -154,14 +179,8 @@ class TodoController {
     try {
       final timestamp = DateTime.now();
       await _todoRepo.delete(todo.id!);
-      removeTodoById(
-        categoryId: todo.categoryId,
-        todoId: todo.id,
-      );
-      await _touchAncestors(
-        todo: todo,
-        timestamp: timestamp,
-      );
+      removeTodoById(categoryId: todo.categoryId, todoId: todo.id);
+      await _touchAncestors(todo: todo, timestamp: timestamp);
     } catch (e) {
       logError('TodoController.deleteTodo: $e');
     }
@@ -188,8 +207,9 @@ class TodoController {
       );
       if (updated != null) {
         removeTodoById(categoryId: sourceCategoryId, todoId: todo.id);
-        final destinationTodos =
-            List<Todo>.from(todosByCategory[targetCategoryId] ?? const <Todo>[]);
+        final destinationTodos = List<Todo>.from(
+          todosByCategory[targetCategoryId] ?? const <Todo>[],
+        );
         destinationTodos.add(updated);
         todosByCategory[targetCategoryId] = destinationTodos;
       }
@@ -200,10 +220,7 @@ class TodoController {
     return null;
   }
 
-  void removeTodoById({
-    required int? categoryId,
-    required int? todoId,
-  }) {
+  void removeTodoById({required int? categoryId, required int? todoId}) {
     if (categoryId == null || todoId == null) return;
     final current = List<Todo>.from(todosByCategory[categoryId] ?? []);
     current.removeWhere((t) => t.id == todoId);
@@ -218,6 +235,12 @@ class TodoController {
       todosByCategory[updated.categoryId!] = current;
     }
   }
+
+  Todo _withFallbackLinks(Todo updated, Todo fallback) => updated.copyWith(
+    todoFileId: updated.todoFileId ?? fallback.todoFileId,
+    categoryId: updated.categoryId ?? fallback.categoryId,
+    parentTodoId: updated.parentTodoId ?? fallback.parentTodoId,
+  );
 
   Future<Todo?> _findCurrentTodo(Todo todo) async {
     final categoryId = todo.categoryId;
@@ -240,10 +263,7 @@ class TodoController {
         current.notes == next.notes;
   }
 
-  Future<void> _touchAncestors({
-    required Todo todo,
-    required DateTime timestamp,
-  }) async {
+  Future<void> _touchAncestors({required Todo todo, required DateTime timestamp}) async {
     final fileId = todo.todoFileId;
     final categoryId = todo.categoryId;
     if (fileId == null || categoryId == null) return;
@@ -253,12 +273,12 @@ class TodoController {
       startingParentTodoId: todo.parentTodoId,
       timestamp: timestamp,
     );
-    await _categories?.touchCategory(
+    await categories?.touchCategory(
       categoryId: categoryId,
       todoFileId: fileId,
       timestamp: timestamp,
     );
-    await _todoFiles?.touchFile(fileId, timestamp: timestamp);
+    await todoFiles?.touchFile(fileId, timestamp: timestamp);
   }
 
   Future<void> _touchParentTodos({

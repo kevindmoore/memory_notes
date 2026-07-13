@@ -12,14 +12,10 @@ typedef OnLoginResult = void Function(bool didLogin);
 
 @RoutePage(name: 'LoginRoute')
 class LoginScreen extends StatefulWidget {
-  final OnLoginResult onResult;
-  final AuthController auth;
+  final OnLoginResult? onResult;
+  final AuthController? auth;
 
-  const LoginScreen({
-    required this.onResult,
-    required this.auth,
-    super.key,
-  });
+  const LoginScreen({this.onResult, this.auth, super.key});
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -32,6 +28,9 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isCreateMode = false;
   bool _hidePassword = true;
   bool _hideRepeatPassword = true;
+  bool _navigatingAfterLogin = false;
+
+  AuthController get _auth => widget.auth ?? AppServices.instance.auth;
 
   @override
   void dispose() {
@@ -43,51 +42,59 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final auth = widget.auth;
+    final auth = _auth;
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
-        child: Watch((context) {
-          final isLoading = auth.isLoading.value;
-          final error = auth.errorMessage.value;
-          return SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const SizedBox(height: 40),
-                _buildHeader(),
-                const SizedBox(height: 40),
-                _buildEmailField(),
-                const SizedBox(height: 16),
-                _buildPasswordField(_passwordCtrl, _hidePassword, (v) {
-                  setState(() => _hidePassword = v);
-                }),
-                if (_isCreateMode) ...[
+        child: SignalBuilder(
+          builder: (context) {
+            final isLoading = auth.isLoading.value;
+            final error = auth.errorMessage.value;
+            final isLoggedIn = auth.isLoggedIn.value;
+            if (isLoggedIn && !_navigatingAfterLogin) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) {
+                  unawaited(_completeLogin());
+                }
+              });
+            }
+            return SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const SizedBox(height: 40),
+                  _buildHeader(),
+                  const SizedBox(height: 40),
+                  _buildEmailField(),
                   const SizedBox(height: 16),
-                  _buildPasswordField(
-                    _repeatPasswordCtrl,
-                    _hideRepeatPassword,
-                    (v) => setState(() => _hideRepeatPassword = v),
-                    hint: 'Repeat password',
-                  ),
+                  _buildPasswordField(_passwordCtrl, _hidePassword, (v) {
+                    setState(() => _hidePassword = v);
+                  }),
+                  if (_isCreateMode) ...[
+                    const SizedBox(height: 16),
+                    _buildPasswordField(
+                      _repeatPasswordCtrl,
+                      _hideRepeatPassword,
+                      (v) => setState(() => _hideRepeatPassword = v),
+                      hint: 'Repeat password',
+                    ),
+                  ],
+                  if (!_isCreateMode) ...[const SizedBox(height: 12), _buildForgotPassword()],
+                  if (error != null) ...[const SizedBox(height: 12), _buildError(error)],
+                  const SizedBox(height: 28),
+                  _buildPrimaryButton(isLoading, auth),
+                  if (!_isCreateMode) ...[
+                    const SizedBox(height: 12),
+                    _buildGoogleButton(isLoading),
+                  ],
+                  const SizedBox(height: 20),
+                  _buildSwitchModeRow(),
                 ],
-                if (!_isCreateMode) ...[
-                  const SizedBox(height: 12),
-                  _buildForgotPassword(),
-                ],
-                if (error != null) ...[
-                  const SizedBox(height: 12),
-                  _buildError(error),
-                ],
-                const SizedBox(height: 28),
-                _buildPrimaryButton(isLoading, auth),
-                const SizedBox(height: 20),
-                _buildSwitchModeRow(),
-              ],
-            ),
-          );
-        }),
+              ),
+            );
+          },
+        ),
       ),
     );
   }
@@ -195,7 +202,7 @@ class _LoginScreenState extends State<LoginScreen> {
             _showSnack('Enter your email to reset password');
             return;
           }
-          widget.auth.resetPassword(_emailCtrl.text);
+          _auth.resetPassword(_emailCtrl.text);
           _showSnack('Password reset email sent');
         },
         child: const Text('Forgot password?', style: TextStyle(color: AppColors.accentLight)),
@@ -216,7 +223,8 @@ class _LoginScreenState extends State<LoginScreen> {
           const Icon(Icons.error_outline, color: AppColors.error, size: 16),
           const SizedBox(width: 8),
           Expanded(
-              child: Text(error, style: const TextStyle(color: AppColors.error, fontSize: 13))),
+            child: Text(error, style: const TextStyle(color: AppColors.error, fontSize: 13)),
+          ),
         ],
       ),
     );
@@ -238,6 +246,17 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  Widget _buildGoogleButton(bool isLoading) {
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        onPressed: isLoading ? null : () => unawaited(_auth.loginWithGoogle()),
+        icon: const Icon(Icons.g_mobiledata, size: 24),
+        label: const Text('Continue with Google'),
+      ),
+    );
+  }
+
   Widget _buildSwitchModeRow() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -250,7 +269,7 @@ class _LoginScreenState extends State<LoginScreen> {
           onPressed: () {
             setState(() {
               _isCreateMode = !_isCreateMode;
-              widget.auth.errorMessage.value = null;
+              _auth.errorMessage.value = null;
             });
           },
           child: Text(
@@ -278,27 +297,33 @@ class _LoginScreenState extends State<LoginScreen> {
         _showSnack('Passwords do not match');
         return;
       }
-      success = await widget.auth.createUser(email, password);
+      success = await _auth.createUser(email, password);
     } else {
-      success = await widget.auth.login(email, password);
+      success = await _auth.login(email, password);
     }
 
-    if (success && mounted) {
-      widget.onResult(true);
-      unawaited(AppServices.instance.preloadAllData());
-      await Future<void>.delayed(Duration.zero);
-      if (!mounted) return;
+    if (success) {
+      await _completeLogin();
+    }
+  }
 
-      final router = context.router;
-      if (router.current.name == LoginRoute.name) {
-        await router.replaceAll([const MainShellRoute()]);
-      }
+  Future<void> _completeLogin() async {
+    if (!mounted || _navigatingAfterLogin) return;
+    _navigatingAfterLogin = true;
+    widget.onResult?.call(true);
+    unawaited(AppServices.instance.preloadAllData());
+    await Future<void>.delayed(Duration.zero);
+    if (!mounted) return;
+
+    final router = context.router;
+    if (router.current.name == LoginRoute.name) {
+      await router.replaceAll([const MainShellRoute()]);
     }
   }
 
   void _showSnack(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), duration: const Duration(seconds: 3)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(msg), duration: const Duration(seconds: 3)));
   }
 }

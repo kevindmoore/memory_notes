@@ -1,5 +1,6 @@
 import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
+import 'package:memory_notes/app/shell/instant_notes_tab_page.dart';
 import 'package:memory_notes/app/shell/main_shell.dart';
 import 'package:memory_notes/app/shell/notes_tab_page.dart';
 import 'package:memory_notes/app/shell/search_tab_page.dart';
@@ -36,7 +37,8 @@ class AppRouter extends RootStackRouter {
           path: '/',
           page: MainShellRoute.page,
           children: [
-            AutoRoute(path: 'notes', page: NotesTabRoute.page, initial: true),
+            AutoRoute(path: 'instant', page: InstantNotesTabRoute.page, initial: true),
+            AutoRoute(path: 'notes', page: NotesTabRoute.page),
             AutoRoute(path: 'search', page: SearchTabRoute.page),
             AutoRoute(path: 'settings', page: SettingsTabRoute.page),
           ],

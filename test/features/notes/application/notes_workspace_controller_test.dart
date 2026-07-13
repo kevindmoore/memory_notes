@@ -32,7 +32,7 @@ void main() {
       expect(controller.openFileIds.value, [2, 1, 3]);
     });
 
-    test('syncWithData removes missing open files and clears deleted selection', () {
+    test('syncWithData keeps missing open files but clears unavailable selection', () {
       final controller = NotesWorkspaceController();
 
       controller.setOpenFileIds(const [1, 2, 3]);
@@ -47,7 +47,7 @@ void main() {
         todosByCategory: const {},
       );
 
-      expect(controller.openFileIds.value, [1, 3]);
+      expect(controller.openFileIds.value, [1, 2, 3]);
       expect(controller.selectedFileId, isNull);
       expect(controller.selectedCategoryId, isNull);
     });

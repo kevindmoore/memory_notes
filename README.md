@@ -20,4 +20,16 @@ The app also includes:
 - Speech dictation for faster note entry
 - Duplicate and rename actions for key note structures
 
+## Local Environment Setup
+
+Copy `dart_defines/environment.example.json` to `dart_defines/environment.json`, replace `SENTRY_DSN` with the DSN from the Sentry Flutter project, set `FIREBASE_APPCHECK_WEB_SITE_KEY` to the reCAPTCHA v3 site key for web release builds, and optionally set `FIREBASE_APPCHECK_WEB_DEBUG_TOKEN` or `FIREBASE_APPCHECK_APPLE_DEBUG_TOKEN` to Firebase App Check debug tokens for local debug runs. Then include it in release builds/runs:
+
+```sh
+flutter run --release --dart-define-from-file=dart_defines/environment.json
+```
+
+Sentry is disabled in debug and profile builds.
+
+If Sentry events do not appear, temporarily set `SENTRY_DIAGNOSTIC_LOGS` to `true` in `dart_defines/environment.json` and rerun the release command to print Sentry SDK transport diagnostics.
+
 Overall, the goal of Memory Notes is to make note-taking and task tracking feel connected instead of separate, so the context for a task is always close at hand.

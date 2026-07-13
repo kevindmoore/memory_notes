@@ -10,15 +10,20 @@ class NotesTabPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final services = AppServices.instance;
-    return NotesListScreen(
-      notesWorkspace: services.notesWorkspace,
-      todoFiles: services.todoFiles,
-      todos: services.todos,
-      notesListActions: services.notesListActions,
-      noteDetailActions: services.noteDetailActions,
-      notesMobile: services.notesMobile,
-      noteEditActions: services.noteEditActions,
-      speech: services.speech,
+    return Navigator(
+      onGenerateRoute: (settings) => MaterialPageRoute<void>(
+        settings: settings,
+        builder: (_) => NotesListScreen(
+          notesWorkspace: services.notesWorkspace,
+          todoFiles: services.todoFiles,
+          todos: services.todos,
+          notesListActions: services.notesListActions,
+          noteDetailActions: services.noteDetailActions,
+          notesMobile: services.notesMobile,
+          noteEditActions: services.noteEditActions,
+          speech: services.speech,
+        ),
+      ),
     );
   }
 }

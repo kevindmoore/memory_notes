@@ -17,8 +17,10 @@ class DesktopTodoDrilldown extends StatefulWidget {
     super.key,
     required this.category,
     required this.todos,
+    required this.loadError,
     required this.todoSortOrder,
     required this.selectedTodoPath,
+    required this.selectedTodoRevealRequestId,
     required this.expandedTodoId,
     required this.selectedTodo,
     required this.scrollToTopRequestId,
@@ -34,8 +36,10 @@ class DesktopTodoDrilldown extends StatefulWidget {
 
   final Category category;
   final List<Todo> todos;
+  final String? loadError;
   final TodoSortOrder todoSortOrder;
   final List<int> selectedTodoPath;
+  final int selectedTodoRevealRequestId;
   final Signal<int?> expandedTodoId;
   final Todo? selectedTodo;
   final int scrollToTopRequestId;
@@ -56,6 +60,7 @@ class _DesktopTodoDrilldownState extends State<DesktopTodoDrilldown> {
   final _horizontalScrollController = ScrollController();
   final Map<int, ScrollController> _columnScrollControllers = <int, ScrollController>{};
   final Map<int, GlobalKey> _todoTileKeys = <int, GlobalKey>{};
+  int _lastHandledSelectedTodoRevealRequestId = 0;
 
   @override
   void dispose() {
@@ -69,23 +74,7 @@ class _DesktopTodoDrilldownState extends State<DesktopTodoDrilldown> {
   @override
   void didUpdateWidget(covariant DesktopTodoDrilldown oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final selectedTodoId = widget.selectedTodo?.id;
     final shouldScrollToTop = widget.scrollToTopRequestId != oldWidget.scrollToTopRequestId;
-    if (selectedTodoId != null &&
-        selectedTodoId != oldWidget.selectedTodo?.id &&
-        !shouldScrollToTop) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        final selectedContext = _todoTileKeys[selectedTodoId]?.currentContext;
-        if (selectedContext == null) return;
-        Scrollable.ensureVisible(
-          selectedContext,
-          duration: const Duration(milliseconds: 280),
-          curve: Curves.easeOutCubic,
-          alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtEnd,
-        );
-      });
-    }
     if (shouldScrollToTop) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
@@ -115,6 +104,11 @@ class _DesktopTodoDrilldownState extends State<DesktopTodoDrilldown> {
       controller.dispose();
       return true;
     });
+    if (widget.selectedTodo != null &&
+        widget.selectedTodoRevealRequestId != _lastHandledSelectedTodoRevealRequestId) {
+      _lastHandledSelectedTodoRevealRequestId = widget.selectedTodoRevealRequestId;
+      _scheduleSelectedTodoScroll();
+    }
     final isKeyboardVisible = MediaQuery.viewInsetsOf(context).bottom > 0;
     return Column(
       children: [
@@ -143,6 +137,7 @@ class _DesktopTodoDrilldownState extends State<DesktopTodoDrilldown> {
             ],
           ),
         ),
+        if (widget.loadError != null) _TodoLoadErrorBanner(message: widget.loadError!),
         Expanded(
           child: widget.todos.isEmpty
               ? const Center(
@@ -251,6 +246,22 @@ class _DesktopTodoDrilldownState extends State<DesktopTodoDrilldown> {
   ScrollController _columnScrollControllerForIndex(int index) {
     return _columnScrollControllers.putIfAbsent(index, ScrollController.new);
   }
+
+  void _scheduleSelectedTodoScroll() {
+    final selectedTodoId = widget.selectedTodo?.id;
+    if (selectedTodoId == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final selectedContext = _todoTileKeys[selectedTodoId]?.currentContext;
+      if (selectedContext == null) return;
+      Scrollable.ensureVisible(
+        selectedContext,
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOutCubic,
+        alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtEnd,
+      );
+    });
+  }
 }
 
 List<List<Todo>> buildTodoColumns(
@@ -276,6 +287,39 @@ List<List<Todo>> buildTodoColumns(
     parentTodoId = selectedTodoPath[depth];
   }
   return columns;
+}
+
+class _TodoLoadErrorBanner extends StatelessWidget {
+  const _TodoLoadErrorBanner({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.error.withAlpha(32),
+        border: Border.all(color: AppColors.error.withAlpha(120)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.cloud_off_rounded, color: AppColors.error, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Could not load tasks. $message',
+              style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class DesktopTodoColumn extends StatelessWidget {

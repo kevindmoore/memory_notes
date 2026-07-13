@@ -224,6 +224,70 @@ class TodoRepository {
 }
 
 // ---------------------------------------------------------------------------
+// InstantNoteRepository
+// ---------------------------------------------------------------------------
+
+class InstantNoteRepository {
+  final SupaDatabaseManager _db;
+  final _tableData = InstantNoteTableData();
+
+  InstantNoteRepository(this._db);
+
+  Future<List<InstantNote>> getAll() async {
+    final result = await _db.readEntries(_tableData);
+    switch (result) {
+      case Success(data: final data):
+        final sorted = List<InstantNote>.from(data)
+          ..sort((a, b) {
+            final left = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+            final right = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+            return right.compareTo(left);
+          });
+        return sorted;
+      case Failure(error: final error):
+        logError('InstantNoteRepository.getAll: $error');
+        throw error;
+      case ErrorMessage(message: final message, code: _):
+        logError('InstantNoteRepository.getAll: $message');
+        throw StateError(message ?? 'Instant note read failed');
+    }
+  }
+
+  Future<InstantNote?> add(String notes) async {
+    final now = DateTime.now();
+    final entry = InstantNoteTableEntry(
+      InstantNote(
+        notes: notes,
+        lastUpdated: now,
+        createdAt: now,
+      ),
+    );
+    final result = await _db.addEntry(_tableData, entry);
+    switch (result) {
+      case Success(data: final data):
+        return data;
+      default:
+        logError('InstantNoteRepository.add failed');
+        return null;
+    }
+  }
+
+  Future<InstantNote?> update(InstantNote instantNote) async {
+    final entry = InstantNoteTableEntry(instantNote);
+    final result = await _db.updateTableEntry(_tableData, entry);
+    switch (result) {
+      case Success(data: final data):
+        return data;
+      default:
+        logError('InstantNoteRepository.update failed');
+        return null;
+    }
+  }
+
+  Future<void> delete(int id) => _db.deleteTableEntryWhere(_tableData, 'id', id);
+}
+
+// ---------------------------------------------------------------------------
 // CurrentStateRepository
 // ---------------------------------------------------------------------------
 
@@ -411,24 +475,30 @@ class CurrentStateRepository {
 
 class DeviceWorkspaceStateRepository {
   DeviceWorkspaceStateRepository({
-    required String? Function() currentUserId,
-    SharedPreferences? prefs,
-  })  : _currentUserId = currentUserId,
-        _prefs = prefs;
+    required this.currentUserId,
+    this.prefs,
+  });
 
-  final String? Function() _currentUserId;
-  SharedPreferences? _prefs;
+  final String? Function() currentUserId;
+  SharedPreferences? prefs;
 
   static const _workspaceStateVersion = 2;
   static const _storageKeyPrefix = 'device_workspace_state';
 
   Future<PersistedWorkspaceState> getWorkspaceState() async {
     final prefs = await _instance;
-    final rawValue = prefs.getString(_storageKey);
+    final workspaceState = _decodeWorkspaceState(prefs.getString(_storageKey));
+    if (_hasWorkspaceStateContent(workspaceState) || _storageKey == _storageKeyPrefix) {
+      return workspaceState;
+    }
+
+    return _decodeWorkspaceState(prefs.getString(_storageKeyPrefix));
+  }
+
+  PersistedWorkspaceState _decodeWorkspaceState(String? rawValue) {
     if (rawValue == null || rawValue.trim().isEmpty) {
       return const PersistedWorkspaceState();
     }
-
     try {
       final decoded = jsonDecode(rawValue);
       if (decoded is! Map<String, dynamic>) {
@@ -458,6 +528,12 @@ class DeviceWorkspaceStateRepository {
     }
   }
 
+  bool _hasWorkspaceStateContent(PersistedWorkspaceState state) {
+    return state.openFileIds.isNotEmpty ||
+        state.selectedFileId != null ||
+        state.selectionsByFile.isNotEmpty;
+  }
+
   Future<void> saveWorkspaceState({
     required List<int> openFileIds,
     required int? selectedFileId,
@@ -476,16 +552,16 @@ class DeviceWorkspaceStateRepository {
     final filesString = jsonEncode(<String, dynamic>{
       'version': _workspaceStateVersion,
       'openFileIds': openFileIds,
-      if (selectedFileId != null) 'selectedFileId': selectedFileId,
+      'selectedFileId': ?selectedFileId,
       'selectionsByFile': normalizedSelections,
     });
     await prefs.setString(_storageKey, filesString);
   }
 
-  Future<SharedPreferences> get _instance async => _prefs ??= await SharedPreferences.getInstance();
+  Future<SharedPreferences> get _instance async => prefs ??= await SharedPreferences.getInstance();
 
   String get _storageKey {
-    final userId = _currentUserId();
+    final userId = currentUserId();
     return userId == null ? _storageKeyPrefix : '${_storageKeyPrefix}_$userId';
   }
 }

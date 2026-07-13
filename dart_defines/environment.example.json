@@ -1,0 +1,6 @@
+{
+  "SENTRY_DSN": "https://examplePublicKey@o0.ingest.sentry.io/0",
+  "FIREBASE_APPCHECK_WEB_SITE_KEY": "",
+  "FIREBASE_APPCHECK_WEB_DEBUG_TOKEN": "",
+  "FIREBASE_APPCHECK_APPLE_DEBUG_TOKEN": ""
+}

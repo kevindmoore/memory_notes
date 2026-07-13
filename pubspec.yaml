@@ -29,10 +29,12 @@ dependencies:
   # Logging
   lumberdash: ^3.0.0
   colorize_lumberdash: ^3.0.0
+  sentry_flutter: ^9.22.0
 
   # Auth & Data (Supabase via supa_manager)
   supa_manager:
     path: ../supa_manager
+  supabase_flutter: ^2.15.0
   secrets_manager:
     path: ../secrets_manager
   utilities:

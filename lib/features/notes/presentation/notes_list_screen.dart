@@ -15,6 +15,7 @@ import 'package:memory_notes/features/notes/application/todo_file_controller.dar
 import 'package:memory_notes/features/notes/presentation/actions/notes_actions.dart';
 import 'package:memory_notes/features/notes/presentation/dialogs/notes_dialogs.dart';
 import 'package:memory_notes/features/notes/presentation/mobile/mobile_lists_view.dart';
+import 'package:memory_notes/features/notes/presentation/note_detail_screen.dart';
 import 'package:memory_notes/features/notes/presentation/workspace/file_sidebar.dart';
 import 'package:memory_notes/features/notes/presentation/workspace/notes_workspace_panel.dart';
 import 'package:memory_notes/features/notes/presentation/workspace/todo_drilldown.dart';
@@ -68,6 +69,8 @@ class _NotesListScreenState extends State<NotesListScreen> {
   int? _pendingDesktopRestoreFileId;
   bool _desktopRestoreScheduled = false;
   int? _lastDesktopSelectedFileId;
+  int? _lastDesktopSelectedTodoId;
+  int _selectedTodoRevealRequestId = 0;
   int _todoNotesFocusRequestId = 0;
   int _todoListScrollToTopRequestId = 0;
 
@@ -139,12 +142,6 @@ class _NotesListScreenState extends State<NotesListScreen> {
   }
 
   @override
-  void reassemble() {
-    super.reassemble();
-    widget.notesWorkspace.repairEmptyOpenWorkspaceFromLoadedData(sortOrder: _sortOrder);
-  }
-
-  @override
   void dispose() {
     _persistCurrentDesktopScrollOffset();
     _desktopSidebarScrollController.dispose();
@@ -155,6 +152,9 @@ class _NotesListScreenState extends State<NotesListScreen> {
 
   void _selectTodo({required int fileId, required int categoryId, required List<int> todoPath}) {
     widget.notesWorkspace.selectTodo(fileId: fileId, categoryId: categoryId, todoPath: todoPath);
+  }
+
+  void _scheduleDesktopTodoScroll() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_desktopWorkspaceScrollController.hasClients) return;
       _desktopWorkspaceScrollController.animateTo(
@@ -204,10 +204,24 @@ class _NotesListScreenState extends State<NotesListScreen> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final isDesktopWorkspace = _shouldUseDesktopWorkspace(constraints.maxWidth);
-        return Watch((context) {
-          widget.notesWorkspace.syncWorkspace();
-          return isDesktopWorkspace ? _buildDesktopWorkspace(context) : _buildMobileLists(context);
-        });
+        return SignalBuilder(
+          dependencies: [
+            widget.notesWorkspace.workspace.selection,
+            widget.notesWorkspace.workspace.openFileIds,
+            widget.todoFiles.todoFiles,
+            widget.notesWorkspace.categories.categories,
+            widget.notesWorkspace.categories.loadedCategoryFileIds,
+            widget.todos.todosByCategory,
+            widget.todos.loadedTodoCategoryIds,
+            widget.todos.error,
+          ],
+          builder: (context) {
+            widget.notesWorkspace.syncWorkspace();
+            return isDesktopWorkspace
+                ? _buildDesktopWorkspace(context)
+                : _buildMobileLists(context);
+          },
+        );
       },
     );
   }
@@ -230,52 +244,61 @@ class _NotesListScreenState extends State<NotesListScreen> {
   }
 
   Widget _buildMobileLists(BuildContext context) {
-    final controller = widget.todoFiles;
-    final query = _mobileSearchQuery.value;
-    final workspaceView = widget.notesWorkspace.buildViewState(
-      sortOrder: _sortOrder,
-      categorySortOrder: _categorySortOrder,
-      todoSortOrder: _todoSortOrder,
-    );
-    List<DesktopWorkspaceFileItem> filterItems(List<DesktopWorkspaceFileItem> items) {
-      if (query.isEmpty) return items;
-      return items
-          .where((item) => item.file.name.toLowerCase().contains(query))
-          .toList(growable: false);
-    }
-
-    return MobileListsView(
-      searchController: _mobileSearchController,
-      searchQuery: query,
-      isLoading: controller.isLoading.value,
-      fileItems: filterItems(workspaceView.openFileItems),
-      onOpenWorkspaceMenu: () => _showWorkspaceMenu(context),
-      onCreateList: () => _showCreateListDialog(context),
-      onRefresh: controller.load,
-      onOpenFile: (item) async {
-        final file = item.file;
-        await widget.notesListActions.openFile(file);
-        if (!context.mounted) return;
-        context.router.push(
-          NoteDetailRoute(
-            fileId: file.id!,
-            notesMobile: widget.notesMobile,
-            noteDetailActions: widget.noteDetailActions,
-            noteEditActions: widget.noteEditActions,
-            speech: widget.speech,
-          ),
+    return SignalBuilder(
+      builder: (context) {
+        final controller = widget.todoFiles;
+        final query = _mobileSearchQuery.value;
+        final workspaceView = widget.notesWorkspace.buildViewState(
+          sortOrder: _sortOrder,
+          categorySortOrder: _categorySortOrder,
+          todoSortOrder: _todoSortOrder,
         );
-      },
-      onRefreshFile: (item) => widget.notesListActions.reloadList(item.file),
-      onCreateCategory: (item) => _showCreateCategoryDialog(context, item.file),
-      onCloseFile: (item) => widget.notesListActions.closeFile(item.file),
-      onRenameFile: (item) => _showRenameListDialog(context, item.file),
-      onDuplicateFile: (item) => _showDuplicateListDialog(context, item.file),
-      onDeleteFile: (item) => controller.delete(item.file.id!),
-      speech: widget.speech,
-      onClearSearch: () {
-        _mobileSearchController.clear();
-        _mobileSearchQuery.value = '';
+        List<DesktopWorkspaceFileItem> filterItems(List<DesktopWorkspaceFileItem> items) {
+          if (query.isEmpty) return items;
+          return items
+              .where((item) => item.file.name.toLowerCase().contains(query))
+              .toList(growable: false);
+        }
+
+        return MobileListsView(
+          searchController: _mobileSearchController,
+          searchQuery: query,
+          isLoading: controller.isLoading.value,
+          fileItems: filterItems(workspaceView.openFileItems),
+          onOpenWorkspaceMenu: () => _showWorkspaceMenu(context),
+          onCreateList: () => _showCreateListDialog(context),
+          onRefresh: controller.load,
+          onOpenFile: (item) async {
+            final file = item.file;
+            final fileId = file.id;
+            if (fileId == null) return;
+            await widget.notesListActions.openFile(file);
+            if (!context.mounted) return;
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                settings: const RouteSettings(name: NoteDetailRoute.name),
+                builder: (_) => NoteDetailScreen(
+                  fileId: fileId,
+                  notesMobile: widget.notesMobile,
+                  noteDetailActions: widget.noteDetailActions,
+                  noteEditActions: widget.noteEditActions,
+                  speech: widget.speech,
+                ),
+              ),
+            );
+          },
+          onRefreshFile: (item) => widget.notesListActions.reloadList(item.file),
+          onCreateCategory: (item) => _showCreateCategoryDialog(context, item.file),
+          onCloseFile: (item) => widget.notesListActions.closeFile(item.file),
+          onRenameFile: (item) => _showRenameListDialog(context, item.file),
+          onDuplicateFile: (item) => _showDuplicateListDialog(context, item.file),
+          onDeleteFile: (item) => controller.delete(item.file.id!),
+          speech: widget.speech,
+          onClearSearch: () {
+            _mobileSearchController.clear();
+            _mobileSearchQuery.value = '';
+          },
+        );
       },
     );
   }
@@ -305,6 +328,13 @@ class _NotesListScreenState extends State<NotesListScreen> {
     if (selectedFile?.id != _lastDesktopSelectedFileId) {
       _lastDesktopSelectedFileId = selectedFile?.id;
       _scheduleDesktopScrollRestore(selectedFile?.id);
+    }
+    if (viewState.selectedTodo?.id != _lastDesktopSelectedTodoId) {
+      _lastDesktopSelectedTodoId = viewState.selectedTodo?.id;
+      if (viewState.selectedTodo != null) {
+        _selectedTodoRevealRequestId++;
+        _scheduleDesktopTodoScroll();
+      }
     }
 
     return Scaffold(
@@ -401,9 +431,11 @@ class _NotesListScreenState extends State<NotesListScreen> {
                                       categories: viewState.categories,
                                       categoryTaskCounts: categoryTaskCounts,
                                       todos: viewState.todos,
+                                      todoLoadError: widget.todos.error.value,
                                       todoSortOrder: _todoSortOrder,
                                       selectedTodo: viewState.selectedTodo,
                                       selectedTodoPath: viewState.selectedTodoPath,
+                                      selectedTodoRevealRequestId: _selectedTodoRevealRequestId,
                                       todoNotesFocusRequestId: _todoNotesFocusRequestId,
                                       todoListScrollToTopRequestId: _todoListScrollToTopRequestId,
                                       expandedTodoId: _expandedTodoId,

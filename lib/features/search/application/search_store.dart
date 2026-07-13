@@ -20,21 +20,30 @@ class SearchStore {
 
   final isLoading = signal(false);
 
-  Future<void> preload() async {
+  Future<void> preload({List<int>? openFileIds}) async {
     isLoading.value = true;
     try {
       await todoFiles.load();
-      final fileIds = todoFiles.todoFiles.value
-          .where((file) => file.id != null)
-          .map((file) => file.id!)
-          .toList();
+      final normalizedOpenFileIds = openFileIds == null
+          ? null
+          : query.normalizeFileIds(openFileIds, todoFiles.todoFiles.value);
+      final fileIds = normalizedOpenFileIds ??
+          todoFiles.todoFiles.value
+              .where((file) => file.id != null)
+              .map((file) => file.id!)
+              .toList();
       await categories.loadAllForSearch(fileIds);
-      for (final category in categories.categories.value.where((category) => category.id != null)) {
-        final loaded = await todos.loadTodos(category.id!);
-        if (!loaded) {
-          break;
-        }
-      }
+      final fileIdSet = fileIds.toSet();
+      final categoryIds = categories.categories.value
+          .where(
+            (category) =>
+                category.id != null &&
+                category.todoFileId != null &&
+                fileIdSet.contains(category.todoFileId),
+          )
+          .map((category) => category.id!)
+          .toList();
+      await Future.wait(categoryIds.map(todos.loadTodos));
     } finally {
       isLoading.value = false;
     }
@@ -77,7 +86,10 @@ class SearchStore {
     return null;
   }
 
-  List<SearchResultItem> buildResults(String searchText) {
+  List<SearchResultItem> buildResults(
+    String searchText, {
+    List<int>? openFileIds,
+  }) {
     final normalizedQuery = searchText.trim().toLowerCase();
     if (normalizedQuery.isEmpty) return const [];
 
@@ -87,7 +99,11 @@ class SearchStore {
         .toList();
 
     final scored = <(int, SearchResultItem)>[];
-    final files = todoFiles.todoFiles.value;
+    final allFiles = todoFiles.todoFiles.value;
+    final openFileIdSet = openFileIds?.toSet();
+    final files = openFileIdSet == null
+        ? allFiles
+        : allFiles.where((file) => file.id != null && openFileIdSet.contains(file.id!)).toList();
     final allCategories = categories.categories.value;
     final todosMap = todos.todosByCategory;
 
@@ -136,7 +152,7 @@ class SearchStore {
           final todoCategory =
               query.findCategoryById(allCategories, todo.categoryId) ?? category;
           final todoFile =
-              query.findFileById(files, todo.todoFileId) ?? file;
+              query.findFileById(allFiles, todo.todoFileId) ?? file;
           final ancestorTodoIds =
               query.buildAncestorTodoIds(todo, categoryTodos);
           final breadcrumb = query.buildTodoBreadcrumb(

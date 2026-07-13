@@ -30,6 +30,7 @@ class NotesWorkspaceStore {
   final CategoryController categories;
   final TodoController todos;
   String? _lastPersistedWorkspaceSnapshot;
+  Future<void>? _initializeFuture;
 
   NotesWorkspaceViewState buildViewState({
     required NotesSortOrder sortOrder,
@@ -49,7 +50,6 @@ class NotesWorkspaceStore {
     final openFiles = query.sortFiles(
       files.where((file) => file.id != null && openFileIds.contains(file.id!)),
       sortOrder: sortOrder,
-      preferredFileOrder: openFileIds,
     );
 
     return NotesWorkspaceViewState(
@@ -58,8 +58,9 @@ class NotesWorkspaceStore {
           .map(
             (file) => DesktopWorkspaceFileItem(
               file: file,
-              categoryCount:
-                  allCategories.where((category) => category.todoFileId == file.id).length,
+              categoryCount: allCategories
+                  .where((category) => category.todoFileId == file.id)
+                  .length,
               isSelected: file.id == workspace.selectedFileId,
               isOpen: file.id != null && openFileIds.contains(file.id!),
             ),
@@ -69,8 +70,9 @@ class NotesWorkspaceStore {
           .map(
             (file) => DesktopWorkspaceFileItem(
               file: file,
-              categoryCount:
-                  allCategories.where((category) => category.todoFileId == file.id).length,
+              categoryCount: allCategories
+                  .where((category) => category.todoFileId == file.id)
+                  .length,
               isSelected: file.id == workspace.selectedFileId,
               isOpen: true,
             ),
@@ -92,9 +94,7 @@ class NotesWorkspaceStore {
     );
   }
 
-  List<DesktopWorkspaceFileItem> buildClosedFileItems({
-    required NotesSortOrder sortOrder,
-  }) {
+  List<DesktopWorkspaceFileItem> buildClosedFileItems({required NotesSortOrder sortOrder}) {
     final allFiles = todoFiles.todoFiles.value;
     final openFileIds = query.normalizeFileIds(workspace.openFileIds.value, allFiles).toSet();
     final files = query.sortFiles(allFiles, sortOrder: sortOrder);
@@ -114,10 +114,22 @@ class NotesWorkspaceStore {
   }
 
   Future<void> initialize() async {
+    final currentInitialize = _initializeFuture;
+    if (currentInitialize != null) {
+      return currentInitialize;
+    }
+    final initialize = _initialize();
+    _initializeFuture = initialize;
+    return initialize;
+  }
+
+  Future<void> _initialize() async {
     await todoFiles.load();
     await _restoreWorkspaceState();
-    final fileIds =
-        todoFiles.todoFiles.value.where((file) => file.id != null).map((file) => file.id!).toList();
+    final fileIds = todoFiles.todoFiles.value
+        .where((file) => file.id != null)
+        .map((file) => file.id!)
+        .toList();
     await categories.loadCategoriesForFiles(fileIds);
     if (workspace.selectedFileId != null) {
       await _loadTodosForFileCategories(workspace.selectedFileId!);
@@ -161,21 +173,20 @@ class NotesWorkspaceStore {
     }
     await _loadTodosForFileCategories(fileId);
 
-    final restoredCategoryId =
-        workspace.selectedFileId == fileId ? workspace.selectedCategoryId : null;
+    final restoredCategoryId = workspace.selectedFileId == fileId
+        ? workspace.selectedCategoryId
+        : null;
     if (restoredCategoryId != null) {
       await todos.loadTodos(restoredCategoryId);
     }
 
     if (autoSelectFirstCategory) {
-      final fileCategories =
-          categories.categories.value.where((category) => category.todoFileId == fileId).toList();
+      final fileCategories = categories.categories.value
+          .where((category) => category.todoFileId == fileId)
+          .toList();
 
       if (fileCategories.isNotEmpty && fileCategories.first.id != null) {
-        workspace.selectCategory(
-          fileId: fileId,
-          categoryId: fileCategories.first.id!,
-        );
+        workspace.selectCategory(fileId: fileId, categoryId: fileCategories.first.id!);
         await todos.loadTodos(fileCategories.first.id!);
       }
     }
@@ -191,26 +202,6 @@ class NotesWorkspaceStore {
     workspace.markFileUsed(fileId);
     await persistCurrentFiles();
     await selectFile(file, autoSelectFirstCategory: autoSelectFirstCategory);
-  }
-
-  void repairEmptyOpenWorkspaceFromLoadedData({
-    NotesSortOrder sortOrder = NotesSortOrder.newest,
-  }) {
-    if (workspace.openFileIds.value.isNotEmpty) return;
-
-    final fileId = query
-        .sortFiles(
-          todoFiles.todoFiles.value.where((file) => file.id != null),
-          sortOrder: sortOrder,
-        )
-        .firstOrNull
-        ?.id;
-    if (fileId == null) return;
-
-    workspace.setOpenFileIds(<int>[fileId]);
-    workspace.selectFile(fileId);
-    syncWorkspace();
-    persistCurrentFiles();
   }
 
   Future<void> closeFile(TodoFile file) async {
@@ -271,8 +262,10 @@ class NotesWorkspaceStore {
     final didRefreshFiles = await _reloadFilesPreservingExistingOnEmptyResult();
     if (!didRefreshFiles) return;
 
-    final openFileIds =
-        query.normalizeFileIds(workspace.openFileIds.value, todoFiles.todoFiles.value);
+    final openFileIds = query.normalizeFileIds(
+      workspace.openFileIds.value,
+      todoFiles.todoFiles.value,
+    );
     final previousCategoryIdsByFile = <int, Set<int>>{
       for (final fileId in openFileIds)
         fileId: categories.categories.value
@@ -309,21 +302,26 @@ class NotesWorkspaceStore {
         .where((file) => file.id != null)
         .map((file) => file.id!)
         .toList(growable: false);
-    final previouslyLoadedCategoryIds =
-        categories.categories.value.map((category) => category.id).whereType<int>().toSet();
+    final previouslyLoadedCategoryIds = categories.categories.value
+        .map((category) => category.id)
+        .whereType<int>()
+        .toSet();
 
     if (allFileIds.isNotEmpty) {
       await categories.loadCategoriesForFiles(allFileIds);
     }
 
-    final nextCategoryIds =
-        categories.categories.value.map((category) => category.id).whereType<int>().toSet();
+    final nextCategoryIds = categories.categories.value
+        .map((category) => category.id)
+        .whereType<int>()
+        .toSet();
     for (final removedCategoryId in previouslyLoadedCategoryIds.difference(nextCategoryIds)) {
       todos.todosByCategory.remove(removedCategoryId);
     }
 
-    final openFileIds =
-        query.normalizeFileIds(workspace.openFileIds.value, todoFiles.todoFiles.value).toSet();
+    final openFileIds = query
+        .normalizeFileIds(workspace.openFileIds.value, todoFiles.todoFiles.value)
+        .toSet();
     final categoryIdsToReload = <int>{
       ...todos.loadedTodoCategoryIds.value,
       for (final category in categories.categories.value)
@@ -339,10 +337,7 @@ class NotesWorkspaceStore {
     await persistCurrentFiles();
   }
 
-  Future<void> selectCategory({
-    required TodoFile file,
-    required Category category,
-  }) async {
+  Future<void> selectCategory({required TodoFile file, required Category category}) async {
     final fileId = file.id;
     final categoryId = category.id;
     if (fileId == null || categoryId == null) return;
@@ -353,11 +348,7 @@ class NotesWorkspaceStore {
     syncWorkspace();
   }
 
-  void selectTodo({
-    required int fileId,
-    required int categoryId,
-    required List<int> todoPath,
-  }) {
+  void selectTodo({required int fileId, required int categoryId, required List<int> todoPath}) {
     if (todoPath.isEmpty) return;
     workspace.selectTodo(
       fileId: fileId,
@@ -382,10 +373,7 @@ class NotesWorkspaceStore {
     );
   }
 
-  Future<void> saveDesktopScrollOffset({
-    required int fileId,
-    required double offset,
-  }) async {
+  Future<void> saveDesktopScrollOffset({required int fileId, required double offset}) async {
     workspace.saveDesktopScrollOffset(fileId: fileId, offset: offset);
     await persistCurrentFiles();
   }
@@ -421,12 +409,7 @@ class NotesWorkspaceStore {
     final fileId = category.todoFileId;
     if (categoryId == null || fileId == null) return;
 
-    await todos.addTodo(
-      fileId,
-      categoryId,
-      'Note',
-      notes: text,
-    );
+    await todos.addTodo(fileId, categoryId, 'Note', notes: text);
     syncWorkspace();
   }
 
@@ -454,9 +437,9 @@ class NotesWorkspaceStore {
         workspace.selectedTodoId == updated.id &&
         fileId != null &&
         categoryId != null) {
-      final parentPath = workspace.selectedTodoPath.take(
-        workspace.selectedTodoPath.length - 1,
-      ).toList();
+      final parentPath = workspace.selectedTodoPath
+          .take(workspace.selectedTodoPath.length - 1)
+          .toList();
       if (parentPath.isEmpty) {
         workspace.selectCategory(fileId: fileId, categoryId: categoryId);
       } else {
@@ -487,16 +470,10 @@ class NotesWorkspaceStore {
           fileId: fileId,
           categoryId: categoryId,
           todoId: parentTodo!.id!,
-          todoPath: <int>[
-            ...query.buildAncestorTodoIds(parentTodo, allTodos),
-            parentTodo.id!,
-          ],
+          todoPath: <int>[...query.buildAncestorTodoIds(parentTodo, allTodos), parentTodo.id!],
         );
       } else {
-        workspace.selectCategory(
-          fileId: fileId,
-          categoryId: categoryId,
-        );
+        workspace.selectCategory(fileId: fileId, categoryId: categoryId);
       }
     }
 
@@ -511,18 +488,10 @@ class NotesWorkspaceStore {
     required String text,
     int? parentTodoId,
   }) async {
-    final created = await todos.addTodo(
-      fileId,
-      categoryId,
-      text,
-      parentTodoId: parentTodoId,
-    );
+    final created = await todos.addTodo(fileId, categoryId, text, parentTodoId: parentTodoId);
     if (created?.id != null) {
       final allTodos = query.todosForCategory(todos.todosByCategory.value, categoryId);
-      final todoPath = <int>[
-        ...query.buildAncestorTodoIds(created!, allTodos),
-        created.id!,
-      ];
+      final todoPath = <int>[...query.buildAncestorTodoIds(created!, allTodos), created.id!];
       final createdId = created.id!;
       workspace.selectTodo(
         fileId: fileId,
@@ -546,10 +515,7 @@ class NotesWorkspaceStore {
     syncWorkspace();
   }
 
-  Future<void> deleteCategory({
-    required Category category,
-    required TodoFile file,
-  }) async {
+  Future<void> deleteCategory({required Category category, required TodoFile file}) async {
     final categoryId = category.id;
     if (categoryId == null) return;
 
@@ -560,10 +526,7 @@ class NotesWorkspaceStore {
     syncWorkspace();
   }
 
-  Future<void> _loadTodosForFileCategories(
-    int fileId, {
-    bool forceReload = false,
-  }) async {
+  Future<void> _loadTodosForFileCategories(int fileId, {bool forceReload = false}) async {
     final fileCategories = query.categoriesForFile(categories.categories.value, fileId);
     for (final category in fileCategories) {
       final categoryId = category.id;
@@ -594,23 +557,10 @@ class NotesWorkspaceStore {
   Future<void> _restoreWorkspaceState() async {
     final savedWorkspaceState = await deviceWorkspaceState.getWorkspaceState();
     final allFiles = todoFiles.todoFiles.value;
-    final restoredFileIds = query.normalizeFileIds(savedWorkspaceState.openFileIds, allFiles);
+    final savedOpenFileIds = savedWorkspaceState.openFileIds.toSet().toList();
+    final restoredFileIds = query.normalizeFileIds(savedOpenFileIds, allFiles);
     final validFileIds = allFiles.where((file) => file.id != null).map((file) => file.id!).toSet();
-    final hasSavedOpenFileIds = savedWorkspaceState.openFileIds.isNotEmpty;
-    final fallbackFileId = hasSavedOpenFileIds
-        ? null
-        : query
-            .sortFiles(
-              allFiles.where((file) => file.id != null),
-              sortOrder: NotesSortOrder.newest,
-            )
-            .firstOrNull
-            ?.id;
-    final openFileIds = restoredFileIds.isNotEmpty
-        ? restoredFileIds
-        : fallbackFileId == null
-            ? const <int>[]
-            : <int>[fallbackFileId];
+    final openFileIds = savedOpenFileIds;
     workspace.restoreSavedSelections({
       for (final entry in savedWorkspaceState.selectionsByFile.entries)
         if (validFileIds.contains(entry.key))
@@ -635,8 +585,8 @@ class NotesWorkspaceStore {
       await _primePersistedWorkspaceSnapshot();
       return;
     }
-    if (openFileIds.isNotEmpty) {
-      workspace.selectFile(openFileIds.first);
+    if (restoredFileIds.isNotEmpty) {
+      workspace.selectFile(restoredFileIds.first);
       await _primePersistedWorkspaceSnapshot();
       return;
     }
@@ -650,19 +600,12 @@ class NotesWorkspaceStore {
   }
 
   _WorkspacePersistencePlan _buildWorkspacePersistencePlan() {
-    final openFileIds =
-        query.normalizeFileIds(workspace.openFileIds.value, todoFiles.todoFiles.value);
-    final validFileIds =
-        todoFiles.todoFiles.value.where((file) => file.id != null).map((file) => file.id!).toSet();
+    final openFileIds = workspace.openFileIds.value.toSet().toList();
     final selectionsByFile = <int, PersistedWorkspaceSelection>{};
     final persistedFileIds = <int>[
-      ...{
-        ...workspace.savedSelectionsByFile.keys,
-        ...workspace.desktopScrollOffsetsByFile.keys,
-      },
+      ...{...workspace.savedSelectionsByFile.keys, ...workspace.desktopScrollOffsetsByFile.keys},
     ]..sort();
     for (final fileId in persistedFileIds) {
-      if (!validFileIds.contains(fileId)) continue;
       final selection = workspace.savedSelectionsByFile[fileId];
       selectionsByFile[fileId] = PersistedWorkspaceSelection(
         categoryId: selection?.categoryId,
@@ -672,9 +615,9 @@ class NotesWorkspaceStore {
       );
     }
     final selectedFileId =
-        workspace.selectedFileId != null && validFileIds.contains(workspace.selectedFileId)
-            ? workspace.selectedFileId
-            : null;
+        workspace.selectedFileId != null && openFileIds.contains(workspace.selectedFileId)
+        ? workspace.selectedFileId
+        : null;
     final deviceWorkspaceSerialized = jsonEncode(<String, dynamic>{
       'openFileIds': openFileIds,
       'selectedFileId': selectedFileId,

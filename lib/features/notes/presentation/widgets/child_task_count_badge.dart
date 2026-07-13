@@ -21,29 +21,28 @@ class ChildTaskCountBadge extends StatelessWidget {
     return Semantics(
       label: '$count child ${count == 1 ? 'task' : 'tasks'}',
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
         decoration: BoxDecoration(
           color: isSelected ? AppColors.selectedSurfaceStrong : AppColors.badge,
           borderRadius: BorderRadius.circular(20),
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.account_tree_outlined,
-              size: 13,
-              color: foregroundColor,
-            ),
-            const SizedBox(width: 4),
-            Text(
-              '$count',
-              style: TextStyle(
-                color: foregroundColor,
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.account_tree_outlined, size: 13, color: foregroundColor),
+              const SizedBox(width: 3),
+              Text(
+                '$count',
+                style: TextStyle(
+                  color: foregroundColor,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

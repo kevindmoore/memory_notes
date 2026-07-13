@@ -65,27 +65,23 @@ class _StartupWrapperState extends State<StartupWrapper> {
   @override
   Widget build(BuildContext context) {
     if (!_initialized) {
-      return MaterialApp(
-        debugShowCheckedModeBanner: false,
-        theme: buildAppTheme(),
-        home: const Scaffold(
-          backgroundColor: AppColors.background,
-          body: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircularProgressIndicator(color: AppColors.accent),
-                SizedBox(height: 24),
-                Text(
-                  'Memory Notes',
-                  style: TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                  ),
+      return const Scaffold(
+        backgroundColor: AppColors.background,
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(color: AppColors.accent),
+              SizedBox(height: 24),
+              Text(
+                'Memory Notes',
+                style: TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       );

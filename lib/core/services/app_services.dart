@@ -1,4 +1,5 @@
 import 'package:memory_notes/features/notes/application/category_controller.dart';
+import 'package:memory_notes/features/instant_notes/application/instant_notes_store.dart';
 import 'package:memory_notes/features/notes/application/notes_query_service.dart';
 import 'package:memory_notes/features/notes/application/notes_merge_service.dart';
 import 'package:memory_notes/features/notes/application/notes_sync_service.dart';
@@ -29,6 +30,7 @@ class AppServices {
   late final NotesMergeService notesMerge;
   late final NotesWorkspaceStore notesWorkspace;
   late final NotesMobileStore notesMobile;
+  late final InstantNotesStore instantNotes;
   late final SearchStore search;
   late final SpeechController speech;
   late final NotesListActions notesListActions;
@@ -60,6 +62,7 @@ class AppServices {
       categories: categories,
       todoFiles: todoFiles,
     );
+    instantNotes = InstantNotesStore(InstantNoteRepository(db), todos);
     notesDuplication = NotesDuplicationService(
       todoFiles: todoFiles,
       categories: categories,

@@ -50,6 +50,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
     final isKeyboardVisible = MediaQuery.viewInsetsOf(context).bottom > 0;
     return AutoTabsScaffold(
       routes: const [
+        InstantNotesTabRoute(),
         NotesTabRoute(),
         SearchTabRoute(),
         SettingsTabRoute(),
@@ -87,18 +88,13 @@ class _AppBottomNav extends StatelessWidget {
         type: BottomNavigationBarType.fixed,
         elevation: 0,
         items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.mic_rounded), label: 'Instant'),
           BottomNavigationBarItem(
             icon: Icon(Icons.format_list_bulleted_rounded),
             label: 'Lists',
           ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.search_rounded),
-            label: 'Search',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.settings_rounded),
-            label: 'Settings',
-          ),
+          BottomNavigationBarItem(icon: Icon(Icons.search_rounded), label: 'Search'),
+          BottomNavigationBarItem(icon: Icon(Icons.settings_rounded), label: 'Settings'),
         ],
       ),
     );

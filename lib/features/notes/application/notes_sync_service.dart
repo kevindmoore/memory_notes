@@ -25,8 +25,8 @@ class NotesSyncService {
     DateTime Function()? now,
     this.recoveryReloadCooldown = const Duration(seconds: 5),
     this.recoveryRetryInterval = const Duration(seconds: 20),
-  })  : connectivity = connectivity ?? Connectivity(),
-        now = now ?? DateTime.now;
+  }) : connectivity = connectivity ?? Connectivity(),
+       now = now ?? DateTime.now;
 
   final SupaDatabaseManager database;
   final NotesQueryService query;
@@ -50,6 +50,7 @@ class NotesSyncService {
   bool _connectivityHintOnline = true;
   bool _realtimeRecoveryInFlight = false;
   bool _recoveryReloadInFlight = false;
+  bool _cancellingRealtimeSubscriptions = false;
   DateTime? _lastRecoveryReloadAt;
 
   Future<void> initialize() async {
@@ -61,10 +62,12 @@ class NotesSyncService {
     _subscribeToRealtimeTables();
 
     _connectivityHintOnline = hasNetworkConnection(await connectivity.checkConnectivity());
-    _connectivitySubscription =
-        connectivity.onConnectivityChanged.listen(_handleConnectivityChanged, onError: (error) {
-      logError('NotesSyncService connectivity stream error: $error');
-    });
+    _connectivitySubscription = connectivity.onConnectivityChanged.listen(
+      _handleConnectivityChanged,
+      onError: (error) {
+        logError('NotesSyncService connectivity stream error: $error');
+      },
+    );
   }
 
   Future<void> dispose() async {
@@ -87,33 +90,63 @@ class NotesSyncService {
   void _subscribeToRealtimeTables() {
     _todoFileSubscription = database
         .subscribeToTableChanges(TodoFileTableData())
-        .listen(_handleFileChange, onError: (error) {
-      _handleRealtimeStreamError(error, reason: 'file stream error');
-    });
+        .listen(
+          _handleFileChange,
+          onError: (error) {
+            _handleRealtimeStreamError(error, reason: 'file stream error');
+          },
+          onDone: () {
+            _handleRealtimeStreamDone(reason: 'file stream closed');
+          },
+        );
 
     _categorySubscription = database
         .subscribeToTableChanges(CategoryTableData())
-        .listen(_handleCategoryChange, onError: (error) {
-      _handleRealtimeStreamError(error, reason: 'category stream error');
-    });
+        .listen(
+          _handleCategoryChange,
+          onError: (error) {
+            _handleRealtimeStreamError(error, reason: 'category stream error');
+          },
+          onDone: () {
+            _handleRealtimeStreamDone(reason: 'category stream closed');
+          },
+        );
 
-    _todoSubscription = database.subscribeToTableChanges(TodoTableData()).listen(_handleTodoChange,
-        onError: (error) {
-      _handleRealtimeStreamError(error, reason: 'todo stream error');
-    });
+    _todoSubscription = database
+        .subscribeToTableChanges(TodoTableData())
+        .listen(
+          _handleTodoChange,
+          onError: (error) {
+            _handleRealtimeStreamError(error, reason: 'todo stream error');
+          },
+          onDone: () {
+            _handleRealtimeStreamDone(reason: 'todo stream closed');
+          },
+        );
   }
 
   Future<void> _cancelRealtimeSubscriptions() async {
-    await _todoFileSubscription?.cancel();
-    await _categorySubscription?.cancel();
-    await _todoSubscription?.cancel();
-    _todoFileSubscription = null;
-    _categorySubscription = null;
-    _todoSubscription = null;
+    _cancellingRealtimeSubscriptions = true;
+    try {
+      await _todoFileSubscription?.cancel();
+      await _categorySubscription?.cancel();
+      await _todoSubscription?.cancel();
+      _todoFileSubscription = null;
+      _categorySubscription = null;
+      _todoSubscription = null;
+    } finally {
+      _cancellingRealtimeSubscriptions = false;
+    }
   }
 
   void _handleRealtimeStreamError(Object error, {required String reason}) {
     logError('NotesSyncService $reason: $error');
+    unawaited(_recoverRealtime(reason: reason));
+  }
+
+  void _handleRealtimeStreamDone({required String reason}) {
+    if (_cancellingRealtimeSubscriptions || !_initialized) return;
+    logWarning('NotesSyncService $reason; recreating realtime subscriptions.');
     unawaited(_recoverRealtime(reason: reason));
   }
 
@@ -158,8 +191,10 @@ class NotesSyncService {
         .map((file) => file.id!)
         .toList(growable: false);
 
-    final openFileIds =
-        query.normalizeFileIds(workspace.openFileIds.value, todoFiles.todoFiles.value);
+    final openFileIds = query.normalizeFileIds(
+      workspace.openFileIds.value,
+      todoFiles.todoFiles.value,
+    );
     workspace.setOpenFileIds(openFileIds);
     if (allFileIds.isNotEmpty) {
       await categories.loadCategoriesForFiles(allFileIds);
@@ -210,11 +245,7 @@ class NotesSyncService {
       'categoryId',
       fallback: _readInt(payload.oldRecord, 'categoryId'),
     );
-    final todoId = _readInt(
-      payload.newRecord,
-      'id',
-      fallback: _readInt(payload.oldRecord, 'id'),
-    );
+    final todoId = _readInt(payload.newRecord, 'id', fallback: _readInt(payload.oldRecord, 'id'));
     final localTodo = query.findTodoById(
       todos.todosByCategory.value.values.expand((items) => items),
       todoId,
@@ -236,7 +267,19 @@ class NotesSyncService {
 
     if (eventType.contains('delete')) {
       todos.removeTodoById(categoryId: resolvedCategoryId, todoId: todoId);
-      await todos.loadTodos(resolvedCategoryId);
+      notesWorkspace.syncWorkspace();
+      return;
+    }
+
+    if (payload.newRecord is Map<String, dynamic>) {
+      final remoteTodo = Todo.fromJson(Map<String, dynamic>.from(payload.newRecord));
+      todos.applyRemoteTodo(
+        remoteTodo.copyWith(
+          todoFileId: remoteTodo.todoFileId ?? localTodo?.todoFileId,
+          categoryId: remoteTodo.categoryId ?? resolvedCategoryId,
+          parentTodoId: remoteTodo.parentTodoId ?? localTodo?.parentTodoId,
+        ),
+      );
       notesWorkspace.syncWorkspace();
       return;
     }
@@ -296,10 +339,7 @@ class NotesSyncService {
       fallback: _readInt(payload.oldRecord, 'id'),
     );
     final localTodo = categoryId == null
-        ? query.findTodoById(
-            todos.todosByCategory.value.values.expand((items) => items),
-            todoId,
-          )
+        ? query.findTodoById(todos.todosByCategory.value.values.expand((items) => items), todoId)
         : query.findTodoById(
             query.todosForCategory(todos.todosByCategory.value, categoryId),
             todoId,
@@ -320,7 +360,7 @@ class NotesSyncService {
     _connectivityHintOnline = nextHasNetworkConnection;
 
     if (!hadNetworkConnection && nextHasNetworkConnection) {
-      await _performRecoveryReload(reason: 'connectivity restored');
+      await _recoverRealtime(reason: 'connectivity restored');
       return;
     }
 
@@ -335,10 +375,7 @@ class NotesSyncService {
     _scheduleRecoveryRetry(reason: 'connectivity changed');
   }
 
-  Future<void> _performRecoveryReload({
-    required String reason,
-    bool ignoreCooldown = false,
-  }) async {
+  Future<void> _performRecoveryReload({required String reason, bool ignoreCooldown = false}) async {
     if (_recoveryReloadInFlight) {
       return;
     }
@@ -391,7 +428,7 @@ class NotesSyncService {
     if (_recoveryRetryTimer?.isActive ?? false) return;
 
     _recoveryRetryTimer = Timer.periodic(recoveryRetryInterval, (_) {
-      _performRecoveryReload(reason: 'scheduled retry');
+      _recoverRealtime(reason: 'scheduled retry');
     });
   }
 
@@ -433,9 +470,7 @@ class NotesSyncService {
     }
 
     final isDelete = eventType.contains('delete');
-    final allowedMissingOpenFileIds = <int>{
-      if (isDelete && deletedFileId != null) deletedFileId,
-    };
+    final allowedMissingOpenFileIds = <int>{if (isDelete && deletedFileId != null) deletedFileId};
     final refreshedFileIds = refreshedFiles.map((file) => file.id).whereType<int>().toSet();
     final missingUnexpectedOpenFileIds = previousOpenFileIds.where(
       (fileId) => !allowedMissingOpenFileIds.contains(fileId) && !refreshedFileIds.contains(fileId),
@@ -499,11 +534,7 @@ class NotesSyncService {
     return localTodo == remoteTodo;
   }
 
-  int? _readInt(
-    Map<String, dynamic> json,
-    String camelKey, {
-    int? fallback,
-  }) {
+  int? _readInt(Map<String, dynamic> json, String camelKey, {int? fallback}) {
     final snakeKey = camelKey.replaceAllMapped(
       RegExp(r'[A-Z]'),
       (match) => '_${match.group(0)!.toLowerCase()}',

@@ -11,7 +11,6 @@ import 'package:memory_notes/features/notes/models/mobile_note_edit_view_state.d
 import 'package:memory_notes/features/notes/models/todo_sort_order.dart';
 import 'package:memory_notes/features/notes/presentation/actions/notes_actions.dart';
 import 'package:memory_notes/features/notes/presentation/dialogs/notes_dialogs.dart';
-import 'package:memory_notes/features/notes/presentation/widgets/child_task_count_badge.dart';
 import 'package:memory_notes/features/speech/application/speech_controller.dart';
 import 'package:memory_notes/features/speech/presentation/speech_mic_button.dart';
 import 'package:signals/signals_flutter.dart';
@@ -51,16 +50,8 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
   bool _didLoad = false;
 
   static const _categoryActions = [
-    NotesActionSheetItem(
-      value: 'duplicate',
-      label: 'Duplicate Category',
-      icon: Icons.copy_rounded,
-    ),
-    NotesActionSheetItem(
-      value: 'rename',
-      label: 'Rename Category',
-      icon: Icons.edit_outlined,
-    ),
+    NotesActionSheetItem(value: 'duplicate', label: 'Duplicate Category', icon: Icons.copy_rounded),
+    NotesActionSheetItem(value: 'rename', label: 'Rename Category', icon: Icons.edit_outlined),
     NotesActionSheetItem(
       value: 'delete',
       label: 'Delete Category',
@@ -75,16 +66,8 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
       label: 'Add Child Task',
       icon: Icons.subdirectory_arrow_right_rounded,
     ),
-    NotesActionSheetItem(
-      value: 'duplicate',
-      label: 'Duplicate Task',
-      icon: Icons.copy_rounded,
-    ),
-    NotesActionSheetItem(
-      value: 'rename',
-      label: 'Rename Task',
-      icon: Icons.edit_outlined,
-    ),
+    NotesActionSheetItem(value: 'duplicate', label: 'Duplicate Task', icon: Icons.copy_rounded),
+    NotesActionSheetItem(value: 'rename', label: 'Rename Task', icon: Icons.edit_outlined),
     NotesActionSheetItem(
       value: 'delete',
       label: 'Delete Task',
@@ -138,82 +121,85 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Watch((context) {
-      final viewState = widget.notesMobile.buildNoteEditViewState(
-        fileId: widget.fileId,
-        categoryId: widget.categoryId,
-        parentTodoId: widget.parentTodoId,
-        focusedTodoId: widget.focusedTodoId,
-        searchQuery: _searchQuery.value,
-        openFocusedTodoNotes: widget.openFocusedTodoNotes,
-        todoSortOrder: _todoSortOrder,
-      );
+    return SignalBuilder(
+      builder: (context) {
+        final viewState = widget.notesMobile.buildNoteEditViewState(
+          fileId: widget.fileId,
+          categoryId: widget.categoryId,
+          parentTodoId: widget.parentTodoId,
+          focusedTodoId: widget.focusedTodoId,
+          searchQuery: _searchQuery.value,
+          openFocusedTodoNotes: widget.openFocusedTodoNotes,
+          todoSortOrder: _todoSortOrder,
+        );
+        final todoLoadError = widget.notesMobile.todos.error.value;
 
-      return Scaffold(
-        backgroundColor: AppColors.background,
-        appBar: AppBar(
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
-            onPressed: () {
-              FocusManager.instance.primaryFocus?.unfocus();
-              context.maybePop();
-            },
-          ),
-          title: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _MobileNoteBreadcrumbBar(
-                fileName: viewState.fileName,
-                category: viewState.category,
-                allTodos: viewState.allTodos,
-                parentTodo: viewState.parentTodo,
-                focusedTodo: viewState.focusedTodo,
-                showFocusedTodo: widget.openFocusedTodoNotes,
-                onNavigate: _navigateToBreadcrumb,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                viewState.screenTitle,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                    color: AppColors.textPrimary, fontSize: 20, fontWeight: FontWeight.bold),
-              ),
-            ],
-          ),
-          toolbarHeight: 84,
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.more_vert_rounded, color: AppColors.textSecondary),
+        return Scaffold(
+          backgroundColor: AppColors.background,
+          appBar: AppBar(
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
               onPressed: () {
-                final activeTodo = viewState.focusedTodo ?? viewState.parentTodo;
-                if (activeTodo != null) {
-                  _showTodoMenu(context, activeTodo);
-                } else if (viewState.category != null) {
-                  _showCategoryMenu(context, viewState.category!);
-                }
+                FocusManager.instance.primaryFocus?.unfocus();
+                Navigator.of(context).maybePop();
               },
             ),
-          ],
-        ),
-        body: Column(
-          children: [
-            if (widget.openFocusedTodoNotes && viewState.focusedTodo != null)
-              Expanded(
-                child: _buildTodoNotesView(viewState.focusedTodo!),
-              )
-            else ...[
-              _buildSearchBar(),
-              _buildTaskHeader(),
-              Expanded(
-                child: _buildTodoList(context, viewState),
+            title: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _MobileNoteBreadcrumbBar(
+                  fileName: viewState.fileName,
+                  category: viewState.category,
+                  allTodos: viewState.allTodos,
+                  parentTodo: viewState.parentTodo,
+                  focusedTodo: viewState.focusedTodo,
+                  showFocusedTodo: widget.openFocusedTodoNotes,
+                  onNavigate: _navigateToBreadcrumb,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  viewState.screenTitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            toolbarHeight: 84,
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.more_vert_rounded, color: AppColors.textSecondary),
+                onPressed: () {
+                  final activeTodo = viewState.focusedTodo ?? viewState.parentTodo;
+                  if (activeTodo != null) {
+                    _showTodoMenu(context, activeTodo);
+                  } else if (viewState.category != null) {
+                    _showCategoryMenu(context, viewState.category!);
+                  }
+                },
               ),
-              _buildInputBar(),
             ],
-          ],
-        ),
-      );
-    });
+          ),
+          body: Column(
+            children: [
+              if (widget.openFocusedTodoNotes && viewState.focusedTodo != null)
+                Expanded(child: _buildTodoNotesView(viewState.focusedTodo!))
+              else ...[
+                _buildSearchBar(),
+                _buildTaskHeader(),
+                if (todoLoadError != null) _TodoLoadErrorBanner(message: todoLoadError),
+                Expanded(child: _buildTodoList(context, viewState)),
+                _buildInputBar(),
+              ],
+            ],
+          ),
+        );
+      },
+    );
   }
 
   Widget _buildSearchBar() {
@@ -231,28 +217,28 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
             child: Icon(Icons.search_rounded, color: AppColors.textDisabled, size: 20),
           ),
           prefixIconConstraints: const BoxConstraints(minWidth: 0),
-          suffixIcon: Watch((context) => Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  SpeechMicButton(
-                    controller: _searchController,
-                    speech: widget.speech,
-                    appendToExistingText: false,
-                    onError: (message) => ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text(message)),
-                    ),
+          suffixIcon: SignalBuilder(
+            builder: (context) => Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SpeechMicButton(
+                  controller: _searchController,
+                  speech: widget.speech,
+                  appendToExistingText: false,
+                  onError: (message) =>
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message))),
+                ),
+                if (_searchQuery.value.isNotEmpty)
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded, color: AppColors.textDisabled, size: 18),
+                    onPressed: () {
+                      _searchController.clear();
+                      _searchQuery.value = '';
+                    },
                   ),
-                  if (_searchQuery.value.isNotEmpty)
-                    IconButton(
-                      icon:
-                          const Icon(Icons.close_rounded, color: AppColors.textDisabled, size: 18),
-                      onPressed: () {
-                        _searchController.clear();
-                        _searchQuery.value = '';
-                      },
-                    ),
-                ],
-              )),
+              ],
+            ),
+          ),
           fillColor: AppColors.surfaceVariant,
           filled: true,
           border: OutlineInputBorder(
@@ -306,12 +292,19 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
         children: [
           Icon(Icons.task_outlined, size: 48, color: AppColors.textDisabled),
           SizedBox(height: 16),
-          Text('No tasks yet',
-              style: TextStyle(
-                  color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.w600)),
+          Text(
+            'No tasks yet',
+            style: TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
           SizedBox(height: 6),
-          Text('Add a new task below',
-              style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+          Text(
+            'Add a new task below',
+            style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+          ),
         ],
       ),
     );
@@ -326,12 +319,7 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
           color: AppColors.navBackground,
           border: Border(top: BorderSide(color: AppColors.divider)),
         ),
-        padding: const EdgeInsets.only(
-          left: 16,
-          right: 12,
-          top: 12,
-          bottom: 12,
-        ),
+        padding: const EdgeInsets.only(left: 16, right: 12, top: 12, bottom: 12),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -347,8 +335,11 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
                     child: Row(
                       children: [
                         const SizedBox(width: 14),
-                        const Icon(Icons.add_circle_outline_rounded,
-                            color: AppColors.textDisabled, size: 20),
+                        const Icon(
+                          Icons.add_circle_outline_rounded,
+                          color: AppColors.textDisabled,
+                          size: 20,
+                        ),
                         const SizedBox(width: 10),
                         Expanded(
                           child: TextField(
@@ -369,9 +360,9 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
                         SpeechMicButton(
                           controller: _taskController,
                           speech: widget.speech,
-                          onError: (message) => ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text(message)),
-                          ),
+                          onError: (message) => ScaffoldMessenger.of(
+                            context,
+                          ).showSnackBar(SnackBar(content: Text(message))),
                         ),
                         const SizedBox(width: 6),
                       ],
@@ -453,10 +444,7 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
               const SizedBox(height: 6),
               const Text(
                 'Task Notes',
-                style: TextStyle(
-                  color: AppColors.textSecondary,
-                  fontSize: 13,
-                ),
+                style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
               ),
             ],
           ),
@@ -465,20 +453,14 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
           child: _TodoNotesEditor(
             todo: todo,
             speech: widget.speech,
-            onSave: (notes) => widget.noteEditActions.saveTodoNotes(
-              todo: todo,
-              notes: notes,
-            ),
+            onSave: (notes) => widget.noteEditActions.saveTodoNotes(todo: todo, notes: notes),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildTodoList(
-    BuildContext context,
-    MobileNoteEditViewState viewState,
-  ) {
+  Widget _buildTodoList(BuildContext context, MobileNoteEditViewState viewState) {
     if (viewState.visibleTodos.isEmpty) {
       return _buildEmpty();
     }
@@ -488,8 +470,9 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
       itemCount: viewState.visibleTodos.length,
       itemBuilder: (context, i) {
         final todo = viewState.visibleTodos[i];
-        final childTaskCount =
-            viewState.allTodos.where((item) => item.parentTodoId == todo.id).length;
+        final childTaskCount = viewState.allTodos
+            .where((item) => item.parentTodoId == todo.id)
+            .length;
         return _TodoTaskTile(
           todo: todo,
           childTaskCount: childTaskCount,
@@ -509,10 +492,7 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
               speech: widget.speech,
             );
             if (duplicateName == null) return;
-            await widget.noteEditActions.duplicateTodo(
-              todo: todo,
-              name: duplicateName,
-            );
+            await widget.noteEditActions.duplicateTodo(todo: todo, name: duplicateName);
           },
           onDelete: () => widget.notesMobile.deleteTodo(todo),
         );
@@ -607,13 +587,13 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
     FocusManager.instance.primaryFocus?.unfocus();
     switch (target.type) {
       case _MobileNoteBreadcrumbTargetType.file:
-        Navigator.of(context).popUntil(
-          (route) => route.settings.name == NoteDetailRoute.name || route.isFirst,
-        );
+        Navigator.of(
+          context,
+        ).popUntil((route) => route.settings.name == NoteDetailRoute.name || route.isFirst);
       case _MobileNoteBreadcrumbTargetType.category:
-        Navigator.of(context).popUntil(
-          (route) => route.settings.name == NoteEditRoute.name || route.isFirst,
-        );
+        Navigator.of(
+          context,
+        ).popUntil((route) => route.settings.name == NoteEditRoute.name || route.isFirst);
         if (!mounted || widget.parentTodoId != null || widget.openFocusedTodoNotes) {
           return;
         }
@@ -641,6 +621,7 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
   }) {
     Navigator.of(context).pushReplacement(
       MaterialPageRoute<void>(
+        settings: const RouteSettings(name: NoteEditRoute.name),
         builder: (_) => NoteEditScreen(
           fileId: widget.fileId,
           categoryId: widget.categoryId,
@@ -674,10 +655,7 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
           speech: widget.speech,
         );
         if (name == null || name == category.name) return;
-        await widget.noteEditActions.renameCategory(
-          category: category,
-          name: name,
-        );
+        await widget.noteEditActions.renameCategory(category: category, name: name);
       case 'duplicate':
         if (!context.mounted) return;
         final duplicateName = await showNotesTextPromptDialog(
@@ -689,10 +667,7 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
           speech: widget.speech,
         );
         if (duplicateName == null) return;
-        await widget.noteEditActions.duplicateCategory(
-          category: category,
-          name: duplicateName,
-        );
+        await widget.noteEditActions.duplicateCategory(category: category, name: duplicateName);
       case 'delete':
         if (!context.mounted) return;
         final confirmed = await showNotesConfirmDialog(
@@ -702,11 +677,9 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
           confirmLabel: 'Delete',
         );
         if (confirmed) {
-          await widget.noteEditActions.deleteCategory(
-            categoryId: category.id!,
-          );
+          await widget.noteEditActions.deleteCategory(categoryId: category.id!);
           if (context.mounted) {
-            context.maybePop();
+            Navigator.of(context).maybePop();
           }
         }
       case null:
@@ -724,10 +697,7 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
       speech: widget.speech,
     );
     if (name == null || name == todo.name) return;
-    await widget.noteEditActions.renameTodo(
-      todo: todo,
-      name: name,
-    );
+    await widget.noteEditActions.renameTodo(todo: todo, name: name);
   }
 
   Future<void> _showTodoMenu(BuildContext context, Todo todo) async {
@@ -751,10 +721,7 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
           speech: widget.speech,
         );
         if (duplicateName == null) return;
-        await widget.noteEditActions.duplicateTodo(
-          todo: todo,
-          name: duplicateName,
-        );
+        await widget.noteEditActions.duplicateTodo(todo: todo, name: duplicateName);
       case 'delete':
         if (!context.mounted) return;
         final confirmed = await showNotesConfirmDialog(
@@ -774,10 +741,7 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
   }
 
   Future<void> _showTodoSortMenu(BuildContext context) async {
-    final action = await showNotesActionSheet<TodoSortOrder>(
-      context,
-      actions: _todoSortActions,
-    );
+    final action = await showNotesActionSheet<TodoSortOrder>(context, actions: _todoSortActions);
     if (action != null) {
       setState(() => _todoSortOrder = action);
     }
@@ -788,12 +752,12 @@ enum _MobileNoteBreadcrumbTargetType { file, category, todo }
 
 class _MobileNoteBreadcrumbTarget {
   const _MobileNoteBreadcrumbTarget.file()
-      : type = _MobileNoteBreadcrumbTargetType.file,
-        todo = null;
+    : type = _MobileNoteBreadcrumbTargetType.file,
+      todo = null;
 
   const _MobileNoteBreadcrumbTarget.category()
-      : type = _MobileNoteBreadcrumbTargetType.category,
-        todo = null;
+    : type = _MobileNoteBreadcrumbTargetType.category,
+      todo = null;
 
   const _MobileNoteBreadcrumbTarget.todo(this.todo) : type = _MobileNoteBreadcrumbTargetType.todo;
 
@@ -828,7 +792,7 @@ class _MobileNoteBreadcrumbBar extends StatelessWidget {
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: segments.length,
-        separatorBuilder: (_, __) => const Padding(
+        separatorBuilder: (_, _) => const Padding(
           padding: EdgeInsets.symmetric(horizontal: 3),
           child: Icon(Icons.chevron_right_rounded, color: AppColors.textDisabled, size: 15),
         ),
@@ -961,11 +925,7 @@ class _MobileNoteBreadcrumbChip extends StatelessWidget {
 }
 
 class _TodoNotesEditor extends StatefulWidget {
-  const _TodoNotesEditor({
-    required this.todo,
-    required this.onSave,
-    required this.speech,
-  });
+  const _TodoNotesEditor({required this.todo, required this.onSave, required this.speech});
 
   final Todo todo;
   final Future<void> Function(String notes) onSave;
@@ -1032,16 +992,10 @@ class _TodoNotesEditorState extends State<_TodoNotesEditor> {
                   padding: EdgeInsets.only(right: 12),
                   child: Text(
                     'Saving...',
-                    style: TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 12,
-                    ),
+                    style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
                   ),
                 ),
-              SpeechMicButton(
-                controller: _controller,
-                speech: widget.speech,
-              ),
+              SpeechMicButton(controller: _controller, speech: widget.speech),
               IconButton(
                 onPressed: _togglePreview,
                 icon: Icon(
@@ -1054,27 +1008,25 @@ class _TodoNotesEditorState extends State<_TodoNotesEditor> {
           ),
           const SizedBox(height: 8),
           Expanded(
-            child: _showPreview ? _buildMarkdownPreview(context) : TextField(
-              controller: _controller,
-              focusNode: _focusNode,
-              autofocus: true,
-              expands: true,
-              maxLines: null,
-              minLines: null,
-              textCapitalization: TextCapitalization.sentences,
-              textAlignVertical: TextAlignVertical.top,
-              style: const TextStyle(
-                color: AppColors.textPrimary,
-                fontSize: 15,
-                height: 1.5,
-              ),
-              decoration: const InputDecoration(
-                hintText: 'Write notes for this task...',
-                alignLabelWithHint: true,
-              ),
-              onChanged: (_) => _scheduleAutosave(),
-              onTapOutside: (_) => _focusNode.unfocus(),
-            ),
+            child: _showPreview
+                ? _buildMarkdownPreview(context)
+                : TextField(
+                    controller: _controller,
+                    focusNode: _focusNode,
+                    autofocus: true,
+                    expands: true,
+                    maxLines: null,
+                    minLines: null,
+                    textCapitalization: TextCapitalization.sentences,
+                    textAlignVertical: TextAlignVertical.top,
+                    style: const TextStyle(color: AppColors.textPrimary, fontSize: 15, height: 1.5),
+                    decoration: const InputDecoration(
+                      hintText: 'Write notes for this task...',
+                      alignLabelWithHint: true,
+                    ),
+                    onChanged: (_) => _scheduleAutosave(),
+                    onTapOutside: (_) => _focusNode.unfocus(),
+                  ),
           ),
         ],
       ),
@@ -1137,10 +1089,7 @@ class _TodoNotesEditorState extends State<_TodoNotesEditor> {
     final notes = _controller.text;
     if (notes.trim().isEmpty) {
       return const Center(
-        child: Text(
-          'No notes yet',
-          style: TextStyle(color: AppColors.textSecondary),
-        ),
+        child: Text('No notes yet', style: TextStyle(color: AppColors.textSecondary)),
       );
     }
 
@@ -1160,11 +1109,7 @@ class _TodoNotesEditorState extends State<_TodoNotesEditor> {
   }
 
   MarkdownStyleSheet _markdownStyleSheet(BuildContext context) {
-    const baseTextStyle = TextStyle(
-      color: AppColors.textPrimary,
-      fontSize: 15,
-      height: 1.5,
-    );
+    const baseTextStyle = TextStyle(color: AppColors.textPrimary, fontSize: 15, height: 1.5);
     return MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
       p: baseTextStyle,
       h1: baseTextStyle.copyWith(fontSize: 24, fontWeight: FontWeight.w700),
@@ -1174,16 +1119,46 @@ class _TodoNotesEditorState extends State<_TodoNotesEditor> {
       em: baseTextStyle.copyWith(fontStyle: FontStyle.italic),
       listBullet: baseTextStyle,
       blockquote: baseTextStyle.copyWith(color: AppColors.textSecondary),
-      code: baseTextStyle.copyWith(
-        backgroundColor: AppColors.background,
-        fontFamily: 'monospace',
-      ),
+      code: baseTextStyle.copyWith(backgroundColor: AppColors.background, fontFamily: 'monospace'),
       codeblockDecoration: BoxDecoration(
         color: AppColors.background,
         borderRadius: BorderRadius.circular(8),
       ),
       blockquoteDecoration: const BoxDecoration(
         border: Border(left: BorderSide(color: AppColors.accent, width: 3)),
+      ),
+    );
+  }
+}
+
+class _TodoLoadErrorBanner extends StatelessWidget {
+  const _TodoLoadErrorBanner({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.error.withAlpha(32),
+        border: Border.all(color: AppColors.error.withAlpha(120)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.cloud_off_rounded, color: AppColors.error, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Could not load tasks. $message',
+              style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1227,8 +1202,8 @@ class _TodoTaskTile extends StatelessWidget {
             color: isFocused
                 ? AppColors.accent
                 : todo.done
-                    ? AppColors.accent.withAlpha(60)
-                    : AppColors.cardBorder,
+                ? AppColors.accent.withAlpha(60)
+                : AppColors.cardBorder,
           ),
         ),
         child: Column(
@@ -1260,24 +1235,26 @@ class _TodoTaskTile extends StatelessWidget {
                     ),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: Text(
-                        todo.name,
-                        style: TextStyle(
-                          color: todo.done ? AppColors.textDisabled : AppColors.textPrimary,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w500,
-                          decoration: todo.done ? TextDecoration.lineThrough : null,
-                          decorationColor: AppColors.textDisabled,
-                        ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            todo.name,
+                            style: TextStyle(
+                              color: todo.done ? AppColors.textDisabled : AppColors.textPrimary,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w500,
+                              decoration: todo.done ? TextDecoration.lineThrough : null,
+                              decorationColor: AppColors.textDisabled,
+                            ),
+                          ),
+                          if (hasChildren) ...[
+                            const SizedBox(height: 8),
+                            _ChildTaskButton(count: childTaskCount, onTap: onOpenChildren!),
+                          ],
+                        ],
                       ),
                     ),
-                    if (hasChildren) ...[
-                      const SizedBox(width: 8),
-                      _ChildTaskButton(
-                        count: childTaskCount,
-                        onTap: onOpenChildren!,
-                      ),
-                    ],
                     GestureDetector(
                       behavior: HitTestBehavior.opaque,
                       onTap: () => _showOptions(context),
@@ -1313,10 +1290,11 @@ class _TodoTaskTile extends StatelessWidget {
         NotesActionSheetItem(value: 'duplicate', label: 'Duplicate Task', icon: Icons.copy_rounded),
         NotesActionSheetItem(value: 'rename', label: 'Rename Task', icon: Icons.edit_outlined),
         NotesActionSheetItem(
-            value: 'delete',
-            label: 'Delete Task',
-            icon: Icons.delete_outline_rounded,
-            color: AppColors.error),
+          value: 'delete',
+          label: 'Delete Task',
+          icon: Icons.delete_outline_rounded,
+          color: AppColors.error,
+        ),
       ],
     );
 
@@ -1339,21 +1317,38 @@ class _ChildTaskButton extends StatelessWidget {
   final int count;
   final VoidCallback onTap;
 
-  const _ChildTaskButton({
-    required this.count,
-    required this.onTap,
-  });
+  const _ChildTaskButton({required this.count, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
-      child: SizedBox(
-        width: 44,
-        height: 44,
-        child: Center(
-          child: ChildTaskCountBadge(count: count),
+      child: Semantics(
+        button: true,
+        label: '$count child ${count == 1 ? 'task' : 'tasks'}',
+        child: Container(
+          width: double.infinity,
+          constraints: const BoxConstraints(minHeight: 36),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(color: AppColors.badge, borderRadius: BorderRadius.circular(8)),
+          child: Row(
+            children: [
+              const Icon(Icons.account_tree_outlined, size: 16, color: AppColors.badgeText),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '$count child ${count == 1 ? 'task' : 'tasks'}',
+                  style: const TextStyle(
+                    color: AppColors.badgeText,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded, size: 18, color: AppColors.badgeText),
+            ],
+          ),
         ),
       ),
     );

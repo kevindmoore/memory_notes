@@ -6,12 +6,12 @@ import 'package:memory_notes/features/notes/data/repositories.dart';
 import 'package:signals/signals.dart';
 
 class CategoryController {
-  CategoryController(this._categoryRepo, {TodoFileController? todoFiles}) : _todoFiles = todoFiles;
+  CategoryController(this._categoryRepo, {this.todoFiles});
 
   static const _query = NotesQueryService();
 
   final CategoryRepository _categoryRepo;
-  final TodoFileController? _todoFiles;
+  final TodoFileController? todoFiles;
 
   final categories = listSignal<Category>([]);
   final loadedCategoryFileIds = listSignal<int>([]);
@@ -96,7 +96,7 @@ class CategoryController {
       );
       if (created != null) {
         categories.value = [...categories.value, created];
-        await _todoFiles?.touchFile(todoFileId);
+        await todoFiles?.touchFile(todoFileId);
       }
       return created;
     } catch (e) {
@@ -125,7 +125,7 @@ class CategoryController {
       );
       if (updated != null) {
         _replaceCategory(updated);
-        await _todoFiles?.touchFile(category.todoFileId!, timestamp: timestamp);
+        await todoFiles?.touchFile(category.todoFileId!, timestamp: timestamp);
       }
       return updated;
     } catch (e) {
@@ -141,7 +141,7 @@ class CategoryController {
       categories.value =
           categories.value.where((category) => category.id != categoryId).toList(growable: false);
       if (category?.todoFileId != null) {
-        await _todoFiles?.touchFile(category!.todoFileId!);
+        await todoFiles?.touchFile(category!.todoFileId!);
       }
     } catch (e) {
       logError('CategoryController.deleteCategory: $e');
@@ -178,7 +178,7 @@ class CategoryController {
     );
     if (updated != null) {
       _replaceCategory(updated);
-      await _todoFiles?.touchFile(targetFileId, timestamp: nextTimestamp);
+      await todoFiles?.touchFile(targetFileId, timestamp: nextTimestamp);
     }
     return updated;
   }

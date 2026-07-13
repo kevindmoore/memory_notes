@@ -8,6 +8,7 @@ const todoFileTableName = 'TodoFiles';
 const categoryTableName = 'Categories';
 const todoTableName = 'Todos';
 const currentStateTableName = 'CurrentState';
+const instantNoteTableName = 'InstantNotes';
 const todoFileIdName = 'todoFileId';
 const categoryIdName = 'categoryId';
 const nameField = 'name';
@@ -96,10 +97,8 @@ class CategoryTableEntry with TableEntry<Category> {
   CategoryTableEntry(this.category, this.todoFileId);
 
   @override
-  CategoryTableEntry addUserId(String userId) => CategoryTableEntry(
-        category.copyWith(todoFileId: todoFileId, userId: userId),
-        todoFileId,
-      );
+  CategoryTableEntry addUserId(String userId) =>
+      CategoryTableEntry(category.copyWith(todoFileId: todoFileId, userId: userId), todoFileId);
 
   @override
   Map<String, dynamic> toJson() => category.toJson();
@@ -155,10 +154,10 @@ class TodoTableEntry with TableEntry<Todo> {
 
   @override
   TodoTableEntry addUserId(String userId) => TodoTableEntry(
-        todo.copyWith(categoryId: categoryId, todoFileId: todoFileId, userId: userId),
-        todoFileId,
-        categoryId,
-      );
+    todo.copyWith(categoryId: categoryId, todoFileId: todoFileId, userId: userId),
+    todoFileId,
+    categoryId,
+  );
 
   @override
   Map<String, dynamic> toJson() => todo.toJson();
@@ -183,8 +182,7 @@ abstract class CurrentState with _$CurrentState {
     @JsonKey(name: 'last_updated', includeIfNull: false) DateTime? lastUpdated,
   }) = _CurrentState;
 
-  factory CurrentState.fromJson(Map<String, dynamic> json) =>
-      _$CurrentStateFromJson(json);
+  factory CurrentState.fromJson(Map<String, dynamic> json) => _$CurrentStateFromJson(json);
 }
 
 class CurrentStateTableData extends TableData<CurrentState> {
@@ -210,6 +208,51 @@ class CurrentStateTableEntry with TableEntry<CurrentState> {
 
   @override
   int? get id => currentState.id;
+
+  @override
+  set id(int? id) {}
+}
+
+// ---------------------------------------------------------------------------
+// InstantNote
+// ---------------------------------------------------------------------------
+
+@Freezed(makeCollectionsUnmodifiable: false)
+abstract class InstantNote with _$InstantNote {
+  const factory InstantNote({
+    required String notes,
+    @JsonKey(includeIfNull: false) int? id,
+    @JsonKey(name: 'user_id', includeIfNull: false) String? userId,
+    @JsonKey(name: 'last_updated', includeIfNull: false) DateTime? lastUpdated,
+    @JsonKey(name: 'created_at', includeIfNull: false) DateTime? createdAt,
+  }) = _InstantNote;
+
+  factory InstantNote.fromJson(Map<String, dynamic> json) => _$InstantNoteFromJson(json);
+}
+
+class InstantNoteTableData extends TableData<InstantNote> {
+  InstantNoteTableData() {
+    tableName = instantNoteTableName;
+  }
+
+  @override
+  InstantNote fromJson(Map<String, dynamic> json) => InstantNote.fromJson(json);
+}
+
+class InstantNoteTableEntry with TableEntry<InstantNote> {
+  final InstantNote instantNote;
+
+  InstantNoteTableEntry(this.instantNote);
+
+  @override
+  InstantNoteTableEntry addUserId(String userId) =>
+      InstantNoteTableEntry(instantNote.copyWith(userId: userId));
+
+  @override
+  Map<String, dynamic> toJson() => instantNote.toJson();
+
+  @override
+  int? get id => instantNote.id;
 
   @override
   set id(int? id) {}

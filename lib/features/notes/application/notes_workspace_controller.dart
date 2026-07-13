@@ -130,13 +130,9 @@ class NotesWorkspaceController {
     Set<int> loadedTodoCategoryIds = const <int>{},
   }) {
     final validFileIds = files.where((file) => file.id != null).map((file) => file.id!).toSet();
-    _savedSelectionsByFile.removeWhere((fileId, _) => !validFileIds.contains(fileId));
-    _desktopScrollOffsetByFile.removeWhere((fileId, _) => !validFileIds.contains(fileId));
-    final nextOpenFileIds =
-        openFileIds.value.where((fileId) => validFileIds.contains(fileId)).toList(growable: false);
-    if (nextOpenFileIds.length != openFileIds.value.length) {
-      openFileIds.value = nextOpenFileIds;
-    }
+    final nextOpenFileIds = openFileIds.value;
+    final loadedOpenFileIds =
+        nextOpenFileIds.where((fileId) => validFileIds.contains(fileId)).toList(growable: false);
     final selected = selection.value;
 
     if (files.isEmpty) {
@@ -151,7 +147,7 @@ class NotesWorkspaceController {
     }
 
     if (selectedFile == null) {
-      final nextSelectedFileId = nextOpenFileIds.firstOrNull;
+      final nextSelectedFileId = loadedOpenFileIds.firstOrNull;
       if (nextSelectedFileId != null) {
         selectFile(nextSelectedFileId);
       } else if (selected.fileId != null ||

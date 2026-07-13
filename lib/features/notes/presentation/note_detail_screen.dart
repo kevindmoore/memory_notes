@@ -7,6 +7,7 @@ import 'package:memory_notes/features/notes/models/category_sort_order.dart';
 import 'package:memory_notes/features/notes/models/mobile_note_detail_view_state.dart';
 import 'package:memory_notes/features/notes/presentation/actions/notes_actions.dart';
 import 'package:memory_notes/features/notes/presentation/dialogs/notes_dialogs.dart';
+import 'package:memory_notes/features/notes/presentation/note_edit_screen.dart';
 import 'package:memory_notes/features/speech/application/speech_controller.dart';
 import 'package:memory_notes/features/speech/presentation/speech_mic_button.dart';
 import 'package:signals/signals_flutter.dart';
@@ -38,6 +39,7 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
   final _searchQuery = signal('');
   CategorySortOrder _categorySortOrder = CategorySortOrder.newest;
   bool _didLoad = false;
+  int? _openingCategoryId;
 
   static const _listMenuActions = [
     NotesActionSheetItem(
@@ -127,7 +129,7 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
-          onPressed: () => context.maybePop(),
+          onPressed: () => Navigator.of(context).maybePop(),
         ),
         titleSpacing: 8,
         title: SafeArea(
@@ -147,7 +149,7 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
                     letterSpacing: 1.2,
                   ),
                 ),
-                Watch((context) {
+                SignalBuilder(builder: (context) {
                   return Text(
                     widget.notesMobile
                         .buildNoteDetailViewState(
@@ -186,7 +188,7 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
           _buildSearchBar(),
           _buildCategoryHeader(),
           Expanded(
-            child: Watch((context) {
+            child: SignalBuilder(builder: (context) {
               final viewState = widget.notesMobile.buildNoteDetailViewState(
                 fileId: _todoFileId,
                 searchQuery: _searchQuery.value,
@@ -202,10 +204,10 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
                 padding: const EdgeInsets.only(top: 8, bottom: 100),
                 itemCount: viewState.categories.length,
                 itemBuilder: (context, i) => _CategoryCard(
-                  notesMobile: widget.notesMobile,
                   noteEditActions: widget.noteEditActions,
                   item: viewState.categories[i],
-                  fileId: _todoFileId,
+                  isOpening: viewState.categories[i].category.id == _openingCategoryId,
+                  onOpen: _openCategory,
                   speech: widget.speech,
                 ),
               );
@@ -230,7 +232,7 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
             child: Icon(Icons.search_rounded, color: AppColors.textDisabled, size: 20),
           ),
           prefixIconConstraints: const BoxConstraints(minWidth: 0),
-          suffixIcon: Watch((context) => Row(
+          suffixIcon: SignalBuilder(builder: (context) => Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   SpeechMicButton(
@@ -343,6 +345,29 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
     );
   }
 
+  Future<void> _openCategory(int categoryId) async {
+    if (_openingCategoryId != null) return;
+    setState(() => _openingCategoryId = categoryId);
+    try {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          settings: const RouteSettings(name: NoteEditRoute.name),
+          builder: (_) => NoteEditScreen(
+            fileId: _todoFileId,
+            categoryId: categoryId,
+            notesMobile: widget.notesMobile,
+            noteEditActions: widget.noteEditActions,
+            speech: widget.speech,
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _openingCategoryId = null);
+      }
+    }
+  }
+
   Future<void> _showListMenu(BuildContext context) async {
     final file = widget.noteDetailActions.findFileById(_todoFileId);
     if (file == null) return;
@@ -356,7 +381,7 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
       case 'close':
         await widget.noteDetailActions.closeList(file);
         if (context.mounted) {
-          context.maybePop();
+          Navigator.of(context).maybePop();
         }
       case 'rename':
         if (!context.mounted) return;
@@ -429,7 +454,7 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
         if (confirmed) {
           await widget.noteDetailActions.deleteList(fileId: file.id!);
           if (context.mounted) {
-            context.maybePop();
+            Navigator.of(context).maybePop();
           }
         }
       case null:
@@ -464,10 +489,10 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
 // ---------------------------------------------------------------------------
 
 class _CategoryCard extends StatelessWidget {
-  final NotesMobileStore notesMobile;
   final NoteEditActions noteEditActions;
   final MobileNoteDetailCategoryItem item;
-  final int fileId;
+  final bool isOpening;
+  final Future<void> Function(int categoryId) onOpen;
   final SpeechController speech;
 
   static const _categoryActions = [
@@ -490,10 +515,10 @@ class _CategoryCard extends StatelessWidget {
   ];
 
   const _CategoryCard({
-    required this.notesMobile,
     required this.noteEditActions,
     required this.item,
-    required this.fileId,
+    required this.isOpening,
+    required this.onOpen,
     required this.speech,
   });
 
@@ -507,15 +532,7 @@ class _CategoryCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         child: InkWell(
           borderRadius: BorderRadius.circular(14),
-          onTap: () => context.pushRoute(
-            NoteEditRoute(
-              fileId: fileId,
-              categoryId: category.id!,
-              notesMobile: notesMobile,
-              noteEditActions: noteEditActions,
-              speech: speech,
-            ),
-          ),
+          onTap: isOpening ? null : () => onOpen(category.id!),
           child: Container(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(14),
@@ -565,20 +582,32 @@ class _CategoryCard extends StatelessWidget {
                         ),
                       ),
                     ),
-                  // Per-row options button
-                  GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () => _showOptions(context),
-                    child: const SizedBox(
+                  if (isOpening)
+                    const SizedBox(
                       width: 32,
                       height: 32,
-                      child: Icon(
-                        Icons.more_horiz_rounded,
-                        color: AppColors.textDisabled,
-                        size: 20,
+                      child: Padding(
+                        padding: EdgeInsets.all(7),
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: AppColors.accent,
+                        ),
+                      ),
+                    )
+                  else
+                    GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => _showOptions(context),
+                      child: const SizedBox(
+                        width: 32,
+                        height: 32,
+                        child: Icon(
+                          Icons.more_horiz_rounded,
+                          color: AppColors.textDisabled,
+                          size: 20,
+                        ),
                       ),
                     ),
-                  ),
                 ],
               ),
             ),
