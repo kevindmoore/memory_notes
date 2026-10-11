@@ -108,6 +108,20 @@ class NotesListActions {
     return duplication.duplicateTodo(todo, name: name);
   }
 
+  Future<Todo?> copyTodo({
+    required Todo todo,
+    required int targetFileId,
+    required int targetCategoryId,
+    required int? targetParentTodoId,
+  }) {
+    return duplication.copyTodo(
+      todo: todo,
+      targetFileId: targetFileId,
+      targetCategoryId: targetCategoryId,
+      targetParentTodoId: targetParentTodoId,
+    );
+  }
+
   Future<ListMergeResult> mergeDuplicateLists({
     int? preferredFileId,
   }) {
@@ -274,6 +288,20 @@ class NoteEditActions {
     required String name,
   }) {
     return duplication.duplicateTodo(todo, name: name);
+  }
+
+  Future<Todo?> copyTodo({
+    required Todo todo,
+    required int targetFileId,
+    required int targetCategoryId,
+    required int? targetParentTodoId,
+  }) {
+    return duplication.copyTodo(
+      todo: todo,
+      targetFileId: targetFileId,
+      targetCategoryId: targetCategoryId,
+      targetParentTodoId: targetParentTodoId,
+    );
   }
 
   Future<void> deleteCategory({

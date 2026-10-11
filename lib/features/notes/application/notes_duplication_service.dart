@@ -123,6 +123,49 @@ class NotesDuplicationService {
     return duplicatedRoot;
   }
 
+  Future<Todo?> copyTodo({
+    required Todo todo,
+    required int targetFileId,
+    required int targetCategoryId,
+    required int? targetParentTodoId,
+  }) async {
+    final sourceFileId = todo.todoFileId;
+    final sourceCategoryId = todo.categoryId;
+    final todoId = todo.id;
+    if (sourceFileId == null || sourceCategoryId == null || todoId == null) {
+      return null;
+    }
+
+    await _ensureCategoryLoaded(
+      Category(name: '', id: sourceCategoryId, todoFileId: sourceFileId),
+    );
+
+    final sourceTodos = query.todosForCategory(
+      todos.todosByCategory.value,
+      sourceCategoryId,
+    );
+    final copiedRoot = await _cloneTodo(
+      todo,
+      targetFileId: targetFileId,
+      targetCategoryId: targetCategoryId,
+      targetParentTodoId: targetParentTodoId,
+    );
+    final copiedRootId = copiedRoot?.id;
+    if (copiedRoot == null || copiedRootId == null) {
+      return copiedRoot;
+    }
+
+    await _duplicateTodoChildren(
+      sourceTodos: sourceTodos,
+      targetFileId: targetFileId,
+      targetCategoryId: targetCategoryId,
+      sourceParentTodoId: todoId,
+      targetParentTodoId: copiedRootId,
+    );
+
+    return copiedRoot;
+  }
+
   Future<void> _ensureFileLoaded(int fileId) async {
     if (!categories.loadedCategoryFileIds.contains(fileId)) {
       await categories.loadCategories(fileId);

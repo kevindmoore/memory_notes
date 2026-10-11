@@ -33,6 +33,7 @@ class _DesktopTodoNotesPaneState extends State<DesktopTodoNotesPane> with Widget
   Timer? _saveTimer;
   String _lastSavedNotes = '';
   bool _isSaving = false;
+  bool _saveFailed = false;
   bool _showPreview = false;
   bool _restoreFocusOnResume = false;
 
@@ -103,43 +104,47 @@ class _DesktopTodoNotesPaneState extends State<DesktopTodoNotesPane> with Widget
   @override
   Widget build(BuildContext context) {
     final todo = widget.todo;
-    return Container(
-      constraints: const BoxConstraints(minWidth: desktopTodoNotesPaneMinWidth),
-      decoration: const BoxDecoration(
-        border: Border(left: BorderSide(color: AppColors.divider)),
-      ),
-      child: todo == null
-          ? const Center(
-              child: Padding(
-                padding: EdgeInsets.all(24),
-                child: Text(
-                  'Select a task to view and edit its notes.',
-                  style: TextStyle(color: AppColors.textSecondary),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            )
-          : Padding(
-              padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
-              child: Column(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isCompact = constraints.maxHeight < 240;
+        return Container(
+          constraints: const BoxConstraints(minWidth: desktopTodoNotesPaneMinWidth),
+          child: todo == null
+              ? const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Text(
+                      'Select a task to view and edit its notes.',
+                      style: TextStyle(color: AppColors.textSecondary),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                )
+              : Padding(
+                  padding: isCompact
+                      ? const EdgeInsets.fromLTRB(20, 8, 20, 8)
+                      : const EdgeInsets.fromLTRB(20, 20, 20, 20),
+                  child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    todo.name,
-                    style: const TextStyle(
-                      color: AppColors.textPrimary,
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
+                  if (!isCompact) ...[
+                    Text(
+                      todo.name,
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    'Task Notes',
-                    style: TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 13,
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Task Notes',
+                      style: TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 13,
+                      ),
                     ),
-                  ),
+                  ],
                   Align(
                     alignment: Alignment.centerRight,
                     child: Row(
@@ -171,7 +176,22 @@ class _DesktopTodoNotesPaneState extends State<DesktopTodoNotesPane> with Widget
                       ],
                     ),
                   ),
-                  const SizedBox(height: 16),
+          if (_saveFailed)
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Couldn’t save. Your text is still here.',
+                    style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                  ),
+                ),
+                TextButton(
+                  onPressed: _isSaving ? null : _flushSave,
+                  child: const Text('Retry save'),
+                ),
+              ],
+            ),
+                  SizedBox(height: isCompact ? 4 : 16),
                   Expanded(
                     child: _showPreview
                         ? _buildMarkdownPreview(context)
@@ -191,8 +211,10 @@ class _DesktopTodoNotesPaneState extends State<DesktopTodoNotesPane> with Widget
                           ),
                   ),
                 ],
-              ),
-            ),
+                  ),
+                ),
+        );
+      },
     );
   }
 
@@ -203,12 +225,13 @@ class _DesktopTodoNotesPaneState extends State<DesktopTodoNotesPane> with Widget
     }
 
     if (!_focusNode.hasFocus) {
-      unawaited(_flushSave());
+      if (!_saveFailed) unawaited(_flushSave());
     }
   }
 
   void _scheduleAutosave() {
     _saveTimer?.cancel();
+    if (_saveFailed) return;
     _saveTimer = Timer(const Duration(seconds: 2), () {
       unawaited(_flushSave());
     });
@@ -223,14 +246,19 @@ class _DesktopTodoNotesPaneState extends State<DesktopTodoNotesPane> with Widget
     setState(() => _isSaving = true);
     try {
       await widget.onSave(todo, notes);
+      if (!mounted || widget.todo?.id != todo.id) return;
       _lastSavedNotes = notes;
+      _saveFailed = false;
+    } catch (_) {
+      if (mounted && widget.todo?.id == todo.id) setState(() => _saveFailed = true);
+      return;
     } finally {
       if (mounted) {
         setState(() => _isSaving = false);
       }
     }
 
-    if (_controller.text != _lastSavedNotes) {
+    if (mounted && _controller.text != _lastSavedNotes) {
       if (_focusNode.hasFocus) {
         _scheduleAutosave();
       } else {
@@ -243,6 +271,7 @@ class _DesktopTodoNotesPaneState extends State<DesktopTodoNotesPane> with Widget
     final notes = widget.todo?.notes ?? '';
     _setControllerText(notes);
     _lastSavedNotes = notes;
+    _saveFailed = false;
   }
 
   void _setControllerText(String notes) {

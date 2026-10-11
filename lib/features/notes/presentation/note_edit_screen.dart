@@ -1,3 +1,5 @@
+import 'package:memory_notes/core/presentation/connection_banner.dart';
+import 'package:memory_notes/core/services/connection_service.dart';
 import 'dart:async';
 
 import 'package:auto_route/auto_route.dart';
@@ -66,7 +68,7 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
       label: 'Add Child Task',
       icon: Icons.subdirectory_arrow_right_rounded,
     ),
-    NotesActionSheetItem(value: 'duplicate', label: 'Duplicate Task', icon: Icons.copy_rounded),
+    NotesActionSheetItem(value: 'copy', label: 'Copy', icon: Icons.copy_rounded),
     NotesActionSheetItem(value: 'rename', label: 'Rename Task', icon: Icons.edit_outlined),
     NotesActionSheetItem(
       value: 'delete',
@@ -135,6 +137,7 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
         final todoLoadError = widget.notesMobile.todos.error.value;
 
         return Scaffold(
+          resizeToAvoidBottomInset: !widget.openFocusedTodoNotes,
           backgroundColor: AppColors.background,
           appBar: AppBar(
             leading: IconButton(
@@ -461,6 +464,15 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
   }
 
   Widget _buildTodoList(BuildContext context, MobileNoteEditViewState viewState) {
+    if (viewState.visibleTodos.isEmpty && widget.notesMobile.todos.error.value != null) {
+      return LoadErrorView(
+        error: widget.notesMobile.todos.error.value!,
+        onRetry: () async {
+          widget.notesMobile.todos.resetLoadBackoff();
+          await widget.notesMobile.loadCategory(widget.categoryId);
+        },
+      );
+    }
     if (viewState.visibleTodos.isEmpty) {
       return _buildEmpty();
     }
@@ -482,18 +494,7 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
           onToggleDone: () => widget.notesMobile.toggleTodo(todo),
           onRename: () => _showRenameTodoDialog(context, todo),
           onAddChild: () => _showAddSubtaskDialog(todo.id!),
-          onDuplicate: () async {
-            final duplicateName = await showNotesTextPromptDialog(
-              context,
-              title: 'Duplicate Task',
-              hintText: 'Task name',
-              confirmLabel: 'Duplicate',
-              initialValue: '${todo.name} (Copy)',
-              speech: widget.speech,
-            );
-            if (duplicateName == null) return;
-            await widget.noteEditActions.duplicateTodo(todo: todo, name: duplicateName);
-          },
+          onDuplicate: () => _showCopyTodoDialog(context, todo),
           onDelete: () => widget.notesMobile.deleteTodo(todo),
         );
       },
@@ -700,6 +701,45 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
     await widget.noteEditActions.renameTodo(todo: todo, name: name);
   }
 
+  Future<void> _showCopyTodoDialog(BuildContext context, Todo todo) async {
+    final destination = await showCopyNoteDestinationDialog(
+      context,
+      sourceTodo: todo,
+      files: widget.notesMobile.todoFiles.todoFiles.value
+          .where((file) => file.id != null)
+          .toList(growable: false),
+      loadCategories: (fileId) async {
+        widget.notesMobile.categories.resetLoadBackoff();
+        await widget.notesMobile.loadFile(fileId);
+        if (widget.notesMobile.categories.error.value != null) {
+          throw StateError(widget.notesMobile.categories.error.value!);
+        }
+        return widget.notesMobile.query.categoriesForFile(
+          widget.notesMobile.categories.categories.value,
+          fileId,
+        );
+      },
+      loadTodos: (categoryId) async {
+        widget.notesMobile.todos.resetLoadBackoff();
+        await widget.notesMobile.loadCategory(categoryId);
+        if (widget.notesMobile.todos.error.value != null) {
+          throw StateError(widget.notesMobile.todos.error.value!);
+        }
+        return widget.notesMobile.query.todosForCategory(
+          widget.notesMobile.todos.todosByCategory.value,
+          categoryId,
+        );
+      },
+    );
+    if (destination == null) return;
+    await widget.noteEditActions.copyTodo(
+      todo: todo,
+      targetFileId: destination.fileId,
+      targetCategoryId: destination.categoryId,
+      targetParentTodoId: destination.parentTodoId,
+    );
+  }
+
   Future<void> _showTodoMenu(BuildContext context, Todo todo) async {
     final action = await showNotesActionSheet<String>(context, actions: _todoActions);
 
@@ -710,18 +750,9 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
       case 'rename':
         if (!context.mounted) return;
         await _showRenameTodoDialog(context, todo);
-      case 'duplicate':
+      case 'copy':
         if (!context.mounted) return;
-        final duplicateName = await showNotesTextPromptDialog(
-          context,
-          title: 'Duplicate Task',
-          hintText: 'Task name',
-          confirmLabel: 'Duplicate',
-          initialValue: '${todo.name} (Copy)',
-          speech: widget.speech,
-        );
-        if (duplicateName == null) return;
-        await widget.noteEditActions.duplicateTodo(todo: todo, name: duplicateName);
+        await _showCopyTodoDialog(context, todo);
       case 'delete':
         if (!context.mounted) return;
         final confirmed = await showNotesConfirmDialog(
@@ -941,6 +972,7 @@ class _TodoNotesEditorState extends State<_TodoNotesEditor> {
   Timer? _saveTimer;
   String _lastSavedNotes = '';
   bool _isSaving = false;
+  bool _saveFailed = false;
   bool _showPreview = false;
 
   @override
@@ -958,6 +990,7 @@ class _TodoNotesEditorState extends State<_TodoNotesEditor> {
       _saveTimer?.cancel();
       _setControllerText(widget.todo.notes);
       _lastSavedNotes = widget.todo.notes;
+      _saveFailed = false;
       return;
     }
 
@@ -980,8 +1013,10 @@ class _TodoNotesEditorState extends State<_TodoNotesEditor> {
 
   @override
   Widget build(BuildContext context) {
+    final keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
+    final isKeyboardVisible = keyboardInset > 0;
     return Padding(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.fromLTRB(16, 16, 16, isKeyboardVisible ? 8 : 16),
       child: Column(
         children: [
           Row(
@@ -1007,6 +1042,21 @@ class _TodoNotesEditorState extends State<_TodoNotesEditor> {
             ],
           ),
           const SizedBox(height: 8),
+          if (_saveFailed)
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Couldn’t save. Your text is still here.',
+                    style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                  ),
+                ),
+                TextButton(
+                  onPressed: _isSaving ? null : _flushSave,
+                  child: const Text('Retry save'),
+                ),
+              ],
+            ),
           Expanded(
             child: _showPreview
                 ? _buildMarkdownPreview(context)
@@ -1017,6 +1067,7 @@ class _TodoNotesEditorState extends State<_TodoNotesEditor> {
                     expands: true,
                     maxLines: null,
                     minLines: null,
+                    scrollPadding: EdgeInsets.fromLTRB(20, 20, 20, keyboardInset + 96),
                     textCapitalization: TextCapitalization.sentences,
                     textAlignVertical: TextAlignVertical.top,
                     style: const TextStyle(color: AppColors.textPrimary, fontSize: 15, height: 1.5),
@@ -1035,12 +1086,13 @@ class _TodoNotesEditorState extends State<_TodoNotesEditor> {
 
   void _handleFocusChange() {
     if (!_focusNode.hasFocus) {
-      unawaited(_flushSave());
+      if (!_saveFailed) unawaited(_flushSave());
     }
   }
 
   void _scheduleAutosave() {
     _saveTimer?.cancel();
+    if (_saveFailed) return;
     _saveTimer = Timer(const Duration(seconds: 2), () {
       unawaited(_flushSave());
     });
@@ -1049,19 +1101,25 @@ class _TodoNotesEditorState extends State<_TodoNotesEditor> {
   Future<void> _flushSave() async {
     _saveTimer?.cancel();
     final notes = _controller.text;
+    final todoId = widget.todo.id;
     if (_isSaving || notes == _lastSavedNotes) return;
 
     setState(() => _isSaving = true);
     try {
       await widget.onSave(notes);
+      if (!mounted || widget.todo.id != todoId) return;
       _lastSavedNotes = notes;
+      _saveFailed = false;
+    } catch (_) {
+      if (mounted && widget.todo.id == todoId) setState(() => _saveFailed = true);
+      return;
     } finally {
       if (mounted) {
         setState(() => _isSaving = false);
       }
     }
 
-    if (_controller.text != _lastSavedNotes) {
+    if (mounted && _controller.text != _lastSavedNotes) {
       if (_focusNode.hasFocus) {
         _scheduleAutosave();
       } else {
@@ -1154,7 +1212,7 @@ class _TodoLoadErrorBanner extends StatelessWidget {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              'Could not load tasks. $message',
+              ConnectionService.loadErrorMessage(message),
               style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
             ),
           ),
@@ -1287,7 +1345,7 @@ class _TodoTaskTile extends StatelessWidget {
           label: 'Add Child Task',
           icon: Icons.subdirectory_arrow_right_rounded,
         ),
-        NotesActionSheetItem(value: 'duplicate', label: 'Duplicate Task', icon: Icons.copy_rounded),
+        NotesActionSheetItem(value: 'copy', label: 'Copy', icon: Icons.copy_rounded),
         NotesActionSheetItem(value: 'rename', label: 'Rename Task', icon: Icons.edit_outlined),
         NotesActionSheetItem(
           value: 'delete',
@@ -1301,7 +1359,7 @@ class _TodoTaskTile extends StatelessWidget {
     switch (action) {
       case 'addChild':
         await onAddChild();
-      case 'duplicate':
+      case 'copy':
         await onDuplicate();
       case 'rename':
         await onRename();

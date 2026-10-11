@@ -1,3 +1,4 @@
+import 'package:memory_notes/core/presentation/connection_banner.dart';
 import 'package:flutter/material.dart';
 import 'package:memory_notes/core/theme/app_theme.dart';
 import 'package:memory_notes/features/notes/models/notes_workspace_view_state.dart';
@@ -9,6 +10,7 @@ class MobileListsView extends StatelessWidget {
     required this.searchController,
     required this.searchQuery,
     required this.isLoading,
+    this.loadError,
     required this.fileItems,
     required this.onOpenWorkspaceMenu,
     required this.onCreateList,
@@ -28,6 +30,7 @@ class MobileListsView extends StatelessWidget {
   final TextEditingController searchController;
   final String searchQuery;
   final bool isLoading;
+  final String? loadError;
   final List<DesktopWorkspaceFileItem> fileItems;
   final VoidCallback onOpenWorkspaceMenu;
   final VoidCallback onCreateList;
@@ -103,7 +106,9 @@ class MobileListsView extends StatelessWidget {
                 ? const Center(
                     child: CircularProgressIndicator(color: AppColors.accent),
                   )
-                : fileItems.isEmpty
+                : fileItems.isEmpty && loadError != null
+                    ? LoadErrorView(error: loadError!, onRetry: onRefresh)
+                    : fileItems.isEmpty
                     ? _MobileEmptyState(query: searchQuery)
                     : RefreshIndicator(
                         color: AppColors.accent,

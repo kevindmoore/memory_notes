@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:memory_notes/core/services/connection_service.dart';
+
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:lumberdash/lumberdash.dart';
@@ -21,6 +23,9 @@ class NotesSyncService {
     required this.todoFiles,
     required this.categories,
     required this.todos,
+    this.connection,
+    this.reloadInstantNotes,
+    this.onRecovered,
     Connectivity? connectivity,
     DateTime Function()? now,
     this.recoveryReloadCooldown = const Duration(seconds: 5),
@@ -35,6 +40,9 @@ class NotesSyncService {
   final TodoFileController todoFiles;
   final CategoryController categories;
   final TodoController todos;
+  final ConnectionService? connection;
+  final Future<void> Function()? reloadInstantNotes;
+  final void Function()? onRecovered;
   final Connectivity connectivity;
   final DateTime Function() now;
   final Duration recoveryReloadCooldown;
@@ -59,9 +67,14 @@ class NotesSyncService {
     }
     _initialized = true;
 
+    await notesWorkspace.initialize();
     _subscribeToRealtimeTables();
 
-    _connectivityHintOnline = hasNetworkConnection(await connectivity.checkConnectivity());
+    _connectivityHintOnline = hasNetworkConnection(await connectivity.checkConnectivity().timeout(ConnectionService.requestTimeout));
+    if (connection?.status.value == ConnectionStatus.offline ||
+        connection?.status.value == ConnectionStatus.unavailable) {
+      scheduleRecoveryRetry();
+    }
     _connectivitySubscription = connectivity.onConnectivityChanged.listen(
       _handleConnectivityChanged,
       onError: (error) {
@@ -75,6 +88,12 @@ class NotesSyncService {
     await _connectivitySubscription?.cancel();
     _recoveryRetryTimer?.cancel();
     _initialized = false;
+  }
+
+  void scheduleRecoveryRetry() => _scheduleRecoveryRetry(reason: 'request failed');
+
+  Future<void> retry() async {
+    await _performRecoveryReload(reason: 'manual retry', ignoreCooldown: true);
   }
 
   Future<void> handleAppResumed() async {
@@ -366,7 +385,7 @@ class NotesSyncService {
 
     if (!nextHasNetworkConnection) {
       logMessage(
-        'NotesSyncService connectivity hint reported no network; waiting for a real backend probe before treating this as offline',
+        'NotesSyncService connectivity hint reported no network; scheduling recovery',
       );
       _scheduleRecoveryRetry(reason: 'connectivity hint reported offline');
       return;
@@ -387,21 +406,32 @@ class NotesSyncService {
       return;
     }
 
-    _connectivityHintOnline = hasNetworkConnection(await connectivity.checkConnectivity());
-
-    final backendReachable = await _canReachBackend();
-    if (!backendReachable) {
-      _scheduleRecoveryRetry(reason: reason);
-      return;
-    }
-
     _recoveryReloadInFlight = true;
     try {
+      final connectivityResults = await connectivity.checkConnectivity().timeout(ConnectionService.requestTimeout);
+      _connectivityHintOnline = hasNetworkConnection(connectivityResults);
+      connection?.updateConnectivity(connectivityResults);
+      if (!await _canReachBackend()) {
+        _scheduleRecoveryRetry(reason: reason);
+        return;
+      }
+      categories.resetLoadBackoff();
+      todos.resetLoadBackoff();
+      await notesWorkspace.initialize();
       await notesWorkspace.reloadAllFiles();
+      await reloadInstantNotes?.call();
+      if (todoFiles.error.value != null || categories.error.value != null || todos.error.value != null ||
+          connection?.status.value == ConnectionStatus.unavailable ||
+          connection?.status.value == ConnectionStatus.offline) {
+        _scheduleRecoveryRetry(reason: reason);
+        return;
+      }
+      onRecovered?.call();
       _lastRecoveryReloadAt = now();
       _recoveryRetryTimer?.cancel();
       _recoveryRetryTimer = null;
     } catch (error) {
+      connection?.reportFailure(error);
       logError('NotesSyncService recovery reload failed ($reason): $error');
       _scheduleRecoveryRetry(reason: reason);
     } finally {
@@ -410,7 +440,9 @@ class NotesSyncService {
   }
 
   Future<bool> _canReachBackend() async {
-    final result = await database.readEntries(TodoFileTableData());
+    final result = await (connection == null
+        ? database.readEntries(TodoFileTableData()).timeout(ConnectionService.requestTimeout)
+        : connection!.run(() => database.readEntries(TodoFileTableData())));
     switch (result) {
       case Success():
         return true;

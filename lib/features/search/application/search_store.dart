@@ -19,11 +19,18 @@ class SearchStore {
   final NotesQueryService query;
 
   final isLoading = signal(false);
+  final error = signal<String?>(null);
 
   Future<void> preload({List<int>? openFileIds}) async {
+    if (isLoading.value) return;
     isLoading.value = true;
+    error.value = null;
     try {
       await todoFiles.load();
+      if (todoFiles.error.value != null) {
+        error.value = todoFiles.error.value;
+        return;
+      }
       final normalizedOpenFileIds = openFileIds == null
           ? null
           : query.normalizeFileIds(openFileIds, todoFiles.todoFiles.value);
@@ -33,6 +40,10 @@ class SearchStore {
               .map((file) => file.id!)
               .toList();
       await categories.loadAllForSearch(fileIds);
+      if (categories.error.value != null) {
+        error.value = categories.error.value;
+        return;
+      }
       final fileIdSet = fileIds.toSet();
       final categoryIds = categories.categories.value
           .where(
@@ -43,7 +54,12 @@ class SearchStore {
           )
           .map((category) => category.id!)
           .toList();
-      await Future.wait(categoryIds.map(todos.loadTodos));
+      final loaded = await Future.wait(categoryIds.map(todos.loadTodos));
+      if (loaded.any((success) => !success)) {
+        error.value = todos.error.value ?? 'Could not load all search results.';
+      }
+    } catch (e) {
+      error.value = e.toString();
     } finally {
       isLoading.value = false;
     }

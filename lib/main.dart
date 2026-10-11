@@ -13,6 +13,7 @@ import 'package:utilities/utilities.dart';
 
 import 'app/app.dart';
 import 'core/services/app_services.dart';
+import 'core/services/connection_service.dart';
 import 'firebase_options.dart';
 
 const _sentryDsn = String.fromEnvironment('SENTRY_DSN');
@@ -52,7 +53,9 @@ Future<void> _runApp() async {
 
   SignalsObserver.instance = null;
   putLumberdashToWork(withClients: [ColorizeLumberdash(), if (_sentryEnabled) SentryLumberdash()]);
-  _logSentryStartupState();
+  if (_sentryEnabled) {
+    _logSentryStartupState();
+  }
   await _initializeAppCheck();
 
   // Load Supabase credentials and initialize supa_manager (auth + db)
@@ -80,7 +83,8 @@ void _logSentryStartupState() {
 Future<void> _initializeAppCheck() async {
   try {
     logMessage('SecretsManager: initializing Firebase App Check.');
-    await SecretsManager.initialize(options: DefaultFirebaseOptions.currentPlatform);
+    await SecretsManager.initialize(options: DefaultFirebaseOptions.currentPlatform)
+        .timeout(ConnectionService.requestTimeout);
     logMessage('SecretsManager: Firebase App Check activated.');
     await _logAppCheckTokenStatus();
   } catch (error) {
@@ -90,7 +94,7 @@ Future<void> _initializeAppCheck() async {
 
 Future<void> _logAppCheckTokenStatus() async {
   try {
-    final token = await SecretsManager.getAppCheckToken();
+    final token = await SecretsManager.getAppCheckToken().timeout(ConnectionService.requestTimeout);
     if (token == null || token.isEmpty) {
       logWarning('SecretsManager: App Check token was empty.');
       return;

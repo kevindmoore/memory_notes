@@ -17,8 +17,17 @@ class CategoryController {
   final loadedCategoryFileIds = listSignal<int>([]);
   final isLoading = signal(false);
   final error = signal<String?>(null);
+  DateTime? _lastLoadFailureAt;
+  static const _loadFailureRetryDelay = Duration(seconds: 2);
+
+  void resetLoadBackoff() {
+    _lastLoadFailureAt = null;
+  }
 
   Future<void> loadCategories(int todoFileId) async {
+    if (_isBackingOffFromLoadFailure()) {
+      return;
+    }
     isLoading.value = true;
     error.value = null;
     try {
@@ -27,15 +36,20 @@ class CategoryController {
       if (!loadedCategoryFileIds.contains(todoFileId)) {
         loadedCategoryFileIds.add(todoFileId);
       }
+      _lastLoadFailureAt = null;
     } catch (e) {
       logError('CategoryController.loadCategories: $e');
       error.value = e.toString();
+      _lastLoadFailureAt = DateTime.now();
     } finally {
       isLoading.value = false;
     }
   }
 
   Future<void> loadCategoriesForFiles(List<int> todoFileIds) async {
+    if (_isBackingOffFromLoadFailure()) {
+      return;
+    }
     isLoading.value = true;
     error.value = null;
     try {
@@ -56,15 +70,21 @@ class CategoryController {
         }
       }
       categories.value = merged.values.toList();
+      _lastLoadFailureAt = null;
     } catch (e) {
       logError('CategoryController.loadCategoriesForFiles: $e');
       error.value = e.toString();
+      _lastLoadFailureAt = DateTime.now();
     } finally {
       isLoading.value = false;
     }
   }
 
   Future<void> loadAllForSearch(List<int> fileIds) async {
+    if (_isBackingOffFromLoadFailure()) {
+      return;
+    }
+    error.value = null;
     try {
       final allCategories = (await Future.wait(
         fileIds.map((id) => _categoryRepo.getByTodoFile(id)),
@@ -79,8 +99,11 @@ class CategoryController {
         merged[category.id] = category;
       }
       categories.value = merged.values.toList();
+      _lastLoadFailureAt = null;
     } catch (e) {
       logError('CategoryController.loadAllForSearch: $e');
+      error.value = e.toString();
+      _lastLoadFailureAt = DateTime.now();
     }
   }
 
@@ -227,5 +250,11 @@ class CategoryController {
       merged[category.id] = category;
     }
     categories.value = merged.values.toList();
+  }
+
+  bool _isBackingOffFromLoadFailure() {
+    final lastLoadFailureAt = _lastLoadFailureAt;
+    return lastLoadFailureAt != null &&
+        DateTime.now().difference(lastLoadFailureAt) < _loadFailureRetryDelay;
   }
 }

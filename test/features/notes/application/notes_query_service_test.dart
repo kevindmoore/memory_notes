@@ -108,6 +108,32 @@ void main() {
       expect(result.map((category) => category.id).toList(), [2, 1]);
     });
 
+    test('sortCategories newest does not sink an all-done category', () {
+      final older = Category(
+        id: 1,
+        name: 'Older',
+        todoFileId: 100,
+        lastUpdated: DateTime(2024, 1, 1),
+      );
+      final newer = Category(
+        id: 2,
+        name: 'Newer',
+        todoFileId: 100,
+        lastUpdated: DateTime(2024, 5, 1),
+      );
+
+      final result = service.sortCategories(
+        [older, newer],
+        sortOrder: CategorySortOrder.newest,
+        todosByCategory: {
+          1: const [Todo(id: 10, name: 'Open', categoryId: 1)],
+          2: const [Todo(id: 20, name: 'Done', categoryId: 2, done: true)],
+        },
+      );
+
+      expect(result.map((category) => category.id).toList(), [2, 1]);
+    });
+
     test('buildAncestorTodoIds and breadcrumb reflect nested todo hierarchy', () {
       const root = Todo(
         id: 10,

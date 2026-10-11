@@ -1,3 +1,5 @@
+import 'package:memory_notes/core/services/connection_service.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:memory_notes/features/notes/application/category_controller.dart';
 import 'package:memory_notes/features/instant_notes/application/instant_notes_store.dart';
 import 'package:memory_notes/features/notes/application/notes_query_service.dart';
@@ -22,6 +24,7 @@ class AppServices {
   static late AppServices _instance;
   static AppServices get instance => _instance;
 
+  late final ConnectionService connection;
   late final AuthController auth;
   late final NotesWorkspaceController workspace;
   late final NotesQueryService notesQuery;
@@ -45,24 +48,25 @@ class AppServices {
   AppServices._(Configuration config) {
     final db = config.supaDatabaseRepository;
     secrets = SecretsManager.supabase();
-    auth = AuthController(config);
+    connection = ConnectionService();
+    auth = AuthController(config, connection: connection);
     workspace = NotesWorkspaceController();
     notesQuery = const NotesQueryService();
     speech = SpeechController();
     deviceWorkspaceState = DeviceWorkspaceStateRepository(
       currentUserId: () => auth.userId,
     );
-    todoFiles = TodoFileController(TodoFileRepository(db));
+    todoFiles = TodoFileController(TodoFileRepository(db, connection: connection));
     categories = CategoryController(
-      CategoryRepository(db),
+      CategoryRepository(db, connection: connection),
       todoFiles: todoFiles,
     );
     todos = TodoController(
-      TodoRepository(db),
+      TodoRepository(db, connection: connection),
       categories: categories,
       todoFiles: todoFiles,
     );
-    instantNotes = InstantNotesStore(InstantNoteRepository(db), todos);
+    instantNotes = InstantNotesStore(InstantNoteRepository(db, connection: connection), todos);
     notesDuplication = NotesDuplicationService(
       todoFiles: todoFiles,
       categories: categories,
@@ -78,12 +82,16 @@ class AppServices {
     notesWorkspace = NotesWorkspaceStore(
       workspace: workspace,
       deviceWorkspaceState: deviceWorkspaceState,
+      cloudWorkspaceState: kIsWeb ? CurrentStateRepository(db, connection: connection) : null,
       query: notesQuery,
       todoFiles: todoFiles,
       categories: categories,
       todos: todos,
     );
     notesSync = NotesSyncService(
+      connection: connection,
+      reloadInstantNotes: instantNotes.load,
+      onRecovered: () => search.error.value = null,
       database: db,
       query: notesQuery,
       workspace: workspace,
@@ -92,6 +100,7 @@ class AppServices {
       categories: categories,
       todos: todos,
     );
+    connection.onUnavailable = notesSync.scheduleRecoveryRetry;
     notesMobile = NotesMobileStore(
       todoFiles: todoFiles,
       categories: categories,
@@ -126,14 +135,23 @@ class AppServices {
     _instance = AppServices._(config);
   }
 
+  Future<void> retryConnection() async {
+    await auth.loadUser();
+    if (!auth.isLoggedIn.value) return;
+    await notesSync.initialize();
+    await notesSync.retry();
+  }
+
   /// Loads all files, then warms categories and todos for search/navigation.
   Future<void> preloadAllData() async {
     await todoFiles.load();
+    if (todoFiles.error.value != null) return;
     final allFileIds = todoFiles.todoFiles.value
         .where((file) => file.id != null)
         .map((file) => file.id!)
         .toList();
     await categories.loadAllForSearch(allFileIds);
+    if (categories.error.value != null) return;
     for (final category in categories.categories.value.where((category) => category.id != null)) {
       final loaded = await todos.loadTodos(category.id!);
       if (!loaded) {

@@ -98,7 +98,8 @@ class NotesMobileStore {
 
   Future<void> saveTodoNotes(Todo todo, String notes) async {
     if (notes == todo.notes) return;
-    await todos.updateTodo(todo.copyWith(notes: notes));
+    final saved = await todos.updateTodo(todo.copyWith(notes: notes));
+    if (saved == null) throw StateError('Could not save notes.');
   }
 
   Future<void> toggleTodo(Todo todo) {

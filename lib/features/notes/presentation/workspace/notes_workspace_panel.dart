@@ -8,6 +8,42 @@ import 'package:memory_notes/features/speech/application/speech_controller.dart'
 import 'package:signals/signals.dart';
 
 const desktopCategoryRailWidth = 320.0;
+const desktopPaneDividerWidth = 8.0;
+
+class DesktopPaneDivider extends StatelessWidget {
+  const DesktopPaneDivider({
+    super.key,
+    required this.onResize,
+    required this.onResizeEnd,
+    required this.onReset,
+  });
+
+  final ValueChanged<double> onResize;
+  final VoidCallback onResizeEnd;
+  final VoidCallback onReset;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.resizeColumn,
+      child: Tooltip(
+        message: 'Drag to resize. Double-click to reset.',
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onDoubleTap: onReset,
+          onHorizontalDragUpdate: (details) => onResize(details.delta.dx),
+          onHorizontalDragEnd: (_) => onResizeEnd(),
+          child: SizedBox(
+            width: desktopPaneDividerWidth,
+            child: Center(
+              child: Container(width: 1, color: AppColors.divider),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class DesktopWorkspaceEmptyState extends StatelessWidget {
   const DesktopWorkspaceEmptyState({super.key});
@@ -51,10 +87,13 @@ class DesktopNotesPanel extends StatelessWidget {
     required this.todoSortOrder,
     required this.selectedTodo,
     required this.selectedTodoPath,
-    required this.selectedTodoRevealRequestId,
+    this.selectedTodoRevealRequestId = 0,
     required this.todoNotesFocusRequestId,
     required this.todoListScrollToTopRequestId,
     required this.expandedTodoId,
+    required this.categoryRailWidth,
+    required this.todoDrilldownWidth,
+    required this.onCreateCategory,
     required this.onCreateTodo,
     required this.onCreateChildTodo,
     required this.onSelectCategory,
@@ -67,6 +106,12 @@ class DesktopNotesPanel extends StatelessWidget {
     required this.onCategoryActions,
     required this.onCategorySortMenu,
     required this.onTodoSortMenu,
+    required this.onCategoryRailResize,
+    required this.onCategoryRailResizeEnd,
+    required this.onCategoryRailReset,
+    required this.onTodoDrilldownResize,
+    required this.onTodoDrilldownResizeEnd,
+    required this.onTodoDrilldownReset,
     required this.speech,
   });
 
@@ -83,6 +128,9 @@ class DesktopNotesPanel extends StatelessWidget {
   final int todoNotesFocusRequestId;
   final int todoListScrollToTopRequestId;
   final Signal<int?> expandedTodoId;
+  final double categoryRailWidth;
+  final double todoDrilldownWidth;
+  final VoidCallback onCreateCategory;
   final VoidCallback? onCreateTodo;
   final ValueChanged<Todo> onCreateChildTodo;
   final ValueChanged<Category> onSelectCategory;
@@ -95,6 +143,12 @@ class DesktopNotesPanel extends StatelessWidget {
   final VoidCallback? onCategoryActions;
   final VoidCallback onCategorySortMenu;
   final VoidCallback onTodoSortMenu;
+  final ValueChanged<double> onCategoryRailResize;
+  final VoidCallback onCategoryRailResizeEnd;
+  final VoidCallback onCategoryRailReset;
+  final ValueChanged<double> onTodoDrilldownResize;
+  final VoidCallback onTodoDrilldownResizeEnd;
+  final VoidCallback onTodoDrilldownReset;
   final SpeechController speech;
 
   @override
@@ -136,136 +190,171 @@ class DesktopNotesPanel extends StatelessWidget {
         Expanded(
           child: Row(
             children: [
-              Container(
-                width: desktopCategoryRailWidth,
-                decoration: const BoxDecoration(
-                  border: Border(right: BorderSide(color: AppColors.divider)),
-                ),
-                child: ListView(
-                  padding: const EdgeInsets.all(18),
+              SizedBox(
+                width: categoryRailWidth,
+                child: Column(
                   children: [
-                    Row(
-                      children: [
-                        const Expanded(
-                          child: Text(
-                            'Categories',
-                            style: TextStyle(
-                              color: AppColors.textDisabled,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: 1.2,
-                            ),
-                          ),
-                        ),
-                        IconButton(
-                          onPressed: onCategorySortMenu,
-                          icon: const Icon(
-                            Icons.sort_rounded,
-                            color: AppColors.textDisabled,
-                            size: 20,
-                          ),
-                          tooltip: 'Sort categories',
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    ...categories.map(
-                      (item) => Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(14),
-                          onTap: () => onSelectCategory(item),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-                            decoration: BoxDecoration(
-                              boxShadow: category?.id == item.id
-                                  ? const [
-                                      BoxShadow(
-                                        color: Color(0x403E67FF),
-                                        blurRadius: 14,
-                                        offset: Offset(0, 8),
-                                      ),
-                                    ]
-                                  : null,
-                              color: category?.id == item.id
-                                  ? AppColors.selectedSurface
-                                  : AppColors.surfaceVariant.withAlpha(100),
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(
-                                color: category?.id == item.id
-                                    ? AppColors.selectedBorder
-                                    : AppColors.cardBorder,
-                                width: category?.id == item.id ? 1.6 : 1,
+                    Expanded(
+                      child: ListView(
+                        padding: const EdgeInsets.all(18),
+                        children: [
+                          Row(
+                            children: [
+                              const Expanded(
+                                child: Text(
+                                  'Categories',
+                                  style: TextStyle(
+                                    color: AppColors.textDisabled,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 1.2,
+                                  ),
+                                ),
                               ),
-                            ),
-                            child: Row(
-                              children: [
-                                if (category?.id == item.id)
-                                  Container(
-                                    width: 4,
-                                    height: 44,
-                                    margin: const EdgeInsets.only(right: 10),
-                                    decoration: BoxDecoration(
-                                      color: AppColors.selectedBorder,
-                                      borderRadius: BorderRadius.circular(999),
+                              IconButton(
+                                onPressed: onCategorySortMenu,
+                                icon: const Icon(
+                                  Icons.sort_rounded,
+                                  color: AppColors.textDisabled,
+                                  size: 20,
+                                ),
+                                tooltip: 'Sort categories',
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          ...categories.map(
+                            (item) => Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(14),
+                                onTap: () => onSelectCategory(item),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                                  decoration: BoxDecoration(
+                                    boxShadow: category?.id == item.id
+                                        ? const [
+                                            BoxShadow(
+                                              color: Color(0x403E67FF),
+                                              blurRadius: 14,
+                                              offset: Offset(0, 8),
+                                            ),
+                                          ]
+                                        : null,
+                                    color: category?.id == item.id
+                                        ? AppColors.selectedSurface
+                                        : AppColors.surfaceVariant.withAlpha(100),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: category?.id == item.id
+                                          ? AppColors.selectedBorder
+                                          : AppColors.cardBorder,
+                                      width: category?.id == item.id ? 1.6 : 1,
                                     ),
                                   ),
-                                Expanded(
                                   child: Row(
                                     children: [
+                                      if (category?.id == item.id)
+                                        Container(
+                                          width: 4,
+                                          height: 44,
+                                          margin: const EdgeInsets.only(right: 10),
+                                          decoration: BoxDecoration(
+                                            color: AppColors.selectedBorder,
+                                            borderRadius: BorderRadius.circular(999),
+                                          ),
+                                        ),
                                       Expanded(
-                                        child: Text(
-                                          item.name,
-                                          style: TextStyle(
-                                            color: category?.id == item.id
-                                                ? Colors.white
-                                                : AppColors.textPrimary,
-                                            fontWeight: FontWeight.w700,
-                                          ),
+                                        child: Row(
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                item.name,
+                                                style: TextStyle(
+                                                  color: category?.id == item.id
+                                                      ? Colors.white
+                                                      : AppColors.textPrimary,
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 10),
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(
+                                                horizontal: 10,
+                                                vertical: 4,
+                                              ),
+                                              decoration: BoxDecoration(
+                                                color: category?.id == item.id
+                                                    ? AppColors.selectedSurfaceStrong
+                                                    : AppColors.badge,
+                                                borderRadius: BorderRadius.circular(20),
+                                              ),
+                                              child: Text(
+                                                '${categoryTaskCounts[item.id] ?? 0}',
+                                                style: TextStyle(
+                                                  color: category?.id == item.id
+                                                      ? Colors.white
+                                                      : AppColors.badgeText,
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
                                         ),
                                       ),
-                                      const SizedBox(width: 10),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 10,
-                                          vertical: 4,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: category?.id == item.id
-                                              ? AppColors.selectedSurfaceStrong
-                                              : AppColors.badge,
-                                          borderRadius: BorderRadius.circular(20),
-                                        ),
-                                        child: Text(
-                                          '${categoryTaskCounts[item.id] ?? 0}',
-                                          style: TextStyle(
-                                            color: category?.id == item.id
-                                                ? Colors.white
-                                                : AppColors.badgeText,
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w700,
+                                      if (category?.id == item.id && onCategoryActions != null)
+                                        IconButton(
+                                          onPressed: onCategoryActions,
+                                          icon: const Icon(
+                                            Icons.more_horiz_rounded,
+                                            color: AppColors.textDisabled,
                                           ),
                                         ),
-                                      ),
                                     ],
                                   ),
                                 ),
-                                if (category?.id == item.id && onCategoryActions != null)
-                                  IconButton(
-                                    onPressed: onCategoryActions,
-                                    icon: const Icon(
-                                      Icons.more_horiz_rounded,
-                                      color: AppColors.textDisabled,
-                                    ),
-                                  ),
-                              ],
+                              ),
                             ),
                           ),
-                        ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
+                      decoration: const BoxDecoration(
+                        color: AppColors.navBackground,
+                        border: Border(top: BorderSide(color: AppColors.divider)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Create a new category for this list.',
+                            style: TextStyle(color: AppColors.textSecondary),
+                          ),
+                          const SizedBox(height: 12),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: ElevatedButton.icon(
+                              onPressed: onCreateCategory,
+                              icon: const Icon(Icons.add_rounded),
+                              label: const Text('Add Category'),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
                 ),
+              ),
+              DesktopPaneDivider(
+                key: const ValueKey('desktop-category-rail-divider'),
+                onResize: onCategoryRailResize,
+                onResizeEnd: onCategoryRailResizeEnd,
+                onReset: onCategoryRailReset,
               ),
               Expanded(
                 child: category == null
@@ -273,7 +362,7 @@ class DesktopNotesPanel extends StatelessWidget {
                     : Row(
                         children: [
                           SizedBox(
-                            width: desktopTodoDrilldownMinWidth,
+                            width: todoDrilldownWidth,
                             child: DesktopTodoDrilldown(
                               category: category!,
                               todos: todos,
@@ -293,6 +382,12 @@ class DesktopNotesPanel extends StatelessWidget {
                               onTodoToggle: onTodoToggle,
                               onTodoSortMenu: onTodoSortMenu,
                             ),
+                          ),
+                          DesktopPaneDivider(
+                            key: const ValueKey('desktop-todo-drilldown-divider'),
+                            onResize: onTodoDrilldownResize,
+                            onResizeEnd: onTodoDrilldownResizeEnd,
+                            onReset: onTodoDrilldownReset,
                           ),
                           Expanded(
                             child: DesktopTodoNotesPane(

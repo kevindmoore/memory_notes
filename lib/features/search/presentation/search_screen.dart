@@ -97,38 +97,16 @@ class _SearchScreenState extends State<SearchScreen> {
               style: const TextStyle(color: AppColors.textPrimary),
               decoration: InputDecoration(
                 hintText: 'Search lists, categories, tasks...',
-                prefixIcon: const Padding(
-                  padding: EdgeInsets.only(left: 12, right: 8),
-                  child: Icon(Icons.search_rounded, color: AppColors.textDisabled, size: 20),
-                ),
-                prefixIconConstraints: const BoxConstraints(minWidth: 0),
-                suffixIcon: SignalBuilder(
-                  builder: (context) => Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      SpeechMicButton(
-                        controller: _searchCtrl,
-                        speech: widget.speech,
-                        appendToExistingText: false,
-                        onError: (message) => ScaffoldMessenger.of(
-                          context,
-                        ).showSnackBar(SnackBar(content: Text(message))),
+                prefixIcon: _usesWorkspaceSelection(context)
+                    ? _buildSearchControls(context, includeSearchIcon: true)
+                    : const Padding(
+                        padding: EdgeInsets.only(left: 12, right: 8),
+                        child: Icon(Icons.search_rounded, color: AppColors.textDisabled, size: 20),
                       ),
-                      if (_query.value.isNotEmpty)
-                        IconButton(
-                          icon: const Icon(
-                            Icons.close_rounded,
-                            color: AppColors.textDisabled,
-                            size: 18,
-                          ),
-                          onPressed: () {
-                            _searchCtrl.clear();
-                            _query.value = '';
-                          },
-                        ),
-                    ],
-                  ),
-                ),
+                prefixIconConstraints: const BoxConstraints(minWidth: 0),
+                suffixIcon: _usesWorkspaceSelection(context)
+                    ? null
+                    : _buildSearchControls(context, includeSearchIcon: false),
                 fillColor: AppColors.surfaceVariant,
                 filled: true,
                 border: OutlineInputBorder(
@@ -173,7 +151,8 @@ class _SearchScreenState extends State<SearchScreen> {
                   );
                 }
 
-                if (_isPreparingSearch || widget.search.isLoading.value) {
+                if ((_isPreparingSearch || widget.search.isLoading.value) &&
+                    widget.search.todoFiles.todoFiles.value.isEmpty) {
                   return const Center(child: CircularProgressIndicator(color: AppColors.accent));
                 }
 
@@ -182,6 +161,29 @@ class _SearchScreenState extends State<SearchScreen> {
                   widget.search.todoFiles.todoFiles.value,
                 );
                 final results = widget.search.buildResults(q, openFileIds: openFileIds);
+
+                if (widget.search.error.value != null) {
+                  return Column(
+                    children: [
+                      TextButton.icon(
+                        onPressed: widget.search.isLoading.value ? null : () async {
+                          widget.search.categories.resetLoadBackoff();
+                          widget.search.todos.resetLoadBackoff();
+                          await _preload();
+                        },
+                        icon: const Icon(Icons.cloud_off_rounded),
+                        label: const Text('Search may be incomplete. Retry'),
+                      ),
+                      if (results.isEmpty)
+                        const Expanded(child: Center(child: Text('Unable to load search results.')))
+                      else
+                        Expanded(child: ListView.builder(
+                          itemCount: results.length,
+                          itemBuilder: (context, index) => _buildResultTile(context, results[index], q),
+                        )),
+                    ],
+                  );
+                }
 
                 if (results.isEmpty) {
                   return Center(
@@ -221,6 +223,37 @@ class _SearchScreenState extends State<SearchScreen> {
               },
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSearchControls(BuildContext context, {required bool includeSearchIcon}) {
+    return SignalBuilder(
+      builder: (context) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (includeSearchIcon)
+            const Padding(
+              padding: EdgeInsets.only(left: 12, right: 8),
+              child: Icon(Icons.search_rounded, color: AppColors.textDisabled, size: 20),
+            ),
+          SpeechMicButton(
+            controller: _searchCtrl,
+            speech: widget.speech,
+            appendToExistingText: false,
+            onError: (message) => ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text(message))),
+          ),
+          if (_query.value.isNotEmpty)
+            IconButton(
+              icon: const Icon(Icons.close_rounded, color: AppColors.textDisabled, size: 18),
+              onPressed: () {
+                _searchCtrl.clear();
+                _query.value = '';
+              },
+            ),
         ],
       ),
     );

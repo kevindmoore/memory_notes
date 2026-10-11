@@ -49,6 +49,7 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final isKeyboardVisible = MediaQuery.viewInsetsOf(context).bottom > 0;
     return AutoTabsScaffold(
+      homeIndex: 0,
       routes: const [
         InstantNotesTabRoute(),
         NotesTabRoute(),

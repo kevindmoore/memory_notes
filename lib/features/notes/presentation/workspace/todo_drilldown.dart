@@ -1,5 +1,7 @@
+import 'package:memory_notes/core/services/connection_service.dart';
 import 'package:auto_size_text/auto_size_text.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/widget_previews.dart';
 import 'package:memory_notes/core/theme/app_theme.dart';
 import 'package:memory_notes/features/notes/application/notes_query_service.dart';
 import 'package:memory_notes/features/notes/data/models.dart';
@@ -20,7 +22,7 @@ class DesktopTodoDrilldown extends StatefulWidget {
     required this.loadError,
     required this.todoSortOrder,
     required this.selectedTodoPath,
-    required this.selectedTodoRevealRequestId,
+    this.selectedTodoRevealRequestId = 0,
     required this.expandedTodoId,
     required this.selectedTodo,
     required this.scrollToTopRequestId,
@@ -109,11 +111,16 @@ class _DesktopTodoDrilldownState extends State<DesktopTodoDrilldown> {
       _lastHandledSelectedTodoRevealRequestId = widget.selectedTodoRevealRequestId;
       _scheduleSelectedTodoScroll();
     }
-    final isKeyboardVisible = MediaQuery.viewInsetsOf(context).bottom > 0;
-    return Column(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isKeyboardVisible =
+            MediaQuery.viewInsetsOf(context).bottom > 0 || constraints.maxHeight < 280;
+        return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
+          padding: isKeyboardVisible
+              ? const EdgeInsets.fromLTRB(24, 12, 24, 8)
+              : const EdgeInsets.fromLTRB(24, 20, 24, 12),
           child: Row(
             children: [
               Expanded(
@@ -140,8 +147,9 @@ class _DesktopTodoDrilldownState extends State<DesktopTodoDrilldown> {
         if (widget.loadError != null) _TodoLoadErrorBanner(message: widget.loadError!),
         Expanded(
           child: widget.todos.isEmpty
-              ? const Center(
-                  child: Text('No tasks yet', style: TextStyle(color: AppColors.textSecondary)),
+              ? Center(
+                  child: Text(widget.loadError == null ? 'No tasks yet' : 'Unable to load tasks.',
+                      style: const TextStyle(color: AppColors.textSecondary)),
                 )
               : LayoutBuilder(
                   builder: (context, constraints) => Scrollbar(
@@ -171,6 +179,10 @@ class _DesktopTodoDrilldownState extends State<DesktopTodoDrilldown> {
                                   selectedTodoId: index < widget.selectedTodoPath.length
                                       ? widget.selectedTodoPath[index]
                                       : null,
+                                  isCurrent: widget.selectedTodo?.id != null &&
+                                      columns[index].any(
+                                        (todo) => todo.id == widget.selectedTodo!.id,
+                                      ),
                                   onSelectTodo: (todo) {
                                     final nextPath = widget.selectedTodoPath.take(index).toList()
                                       ..add(todo.id!);
@@ -192,59 +204,57 @@ class _DesktopTodoDrilldownState extends State<DesktopTodoDrilldown> {
                   ),
                 ),
         ),
-        AnimatedSwitcher(
-          duration: const Duration(milliseconds: 180),
-          child: isKeyboardVisible
-              ? const SizedBox.shrink()
-              : Container(
-                  padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
-                  decoration: const BoxDecoration(
-                    color: AppColors.navBackground,
-                    border: Border(top: BorderSide(color: AppColors.divider)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+        if (!isKeyboardVisible)
+          Container(
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
+            decoration: const BoxDecoration(
+              color: AppColors.navBackground,
+              border: Border(top: BorderSide(color: AppColors.divider)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Create a new task for this category.',
+                  style: TextStyle(color: AppColors.textSecondary),
+                ),
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    alignment: WrapAlignment.end,
                     children: [
-                      const Text(
-                        'Create a new task for this category.',
-                        style: TextStyle(color: AppColors.textSecondary),
-                      ),
-                      const SizedBox(height: 12),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: Wrap(
-                          spacing: 12,
-                          runSpacing: 12,
-                          alignment: WrapAlignment.end,
-                          children: [
-                            if (widget.selectedTodo != null)
-                              OutlinedButton.icon(
-                                onPressed: () => widget.onCreateChildTodo(widget.selectedTodo!),
-                                icon: const Icon(Icons.subdirectory_arrow_right_rounded),
-                                label: const Text('Add Child Task'),
-                              ),
-                            ElevatedButton.icon(
-                              onPressed: widget.onCreateTodo,
-                              icon: const Icon(Icons.add_rounded),
-                              label: const Text('Add Task'),
-                            ),
-                          ],
+                      if (widget.selectedTodo != null)
+                        OutlinedButton.icon(
+                          onPressed: () => widget.onCreateChildTodo(widget.selectedTodo!),
+                          icon: const Icon(Icons.subdirectory_arrow_right_rounded),
+                          label: const Text('Add Child Task'),
                         ),
+                      ElevatedButton.icon(
+                        onPressed: widget.onCreateTodo,
+                        icon: const Icon(Icons.add_rounded),
+                        label: const Text('Add Task'),
                       ),
                     ],
                   ),
                 ),
-        ),
+              ],
+            ),
+          ),
       ],
+        );
+      },
     );
-  }
-
-  GlobalKey _todoTileKeyForId(int todoId) {
-    return _todoTileKeys.putIfAbsent(todoId, GlobalKey.new);
   }
 
   ScrollController _columnScrollControllerForIndex(int index) {
     return _columnScrollControllers.putIfAbsent(index, ScrollController.new);
+  }
+
+  GlobalKey _todoTileKeyForId(int todoId) {
+    return _todoTileKeys.putIfAbsent(todoId, GlobalKey.new);
   }
 
   void _scheduleSelectedTodoScroll() {
@@ -312,7 +322,7 @@ class _TodoLoadErrorBanner extends StatelessWidget {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              'Could not load tasks. $message',
+              ConnectionService.loadErrorMessage(message),
               style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
             ),
           ),
@@ -330,6 +340,7 @@ class DesktopTodoColumn extends StatelessWidget {
     required this.allTodos,
     required this.controller,
     required this.selectedTodoId,
+    required this.isCurrent,
     required this.onSelectTodo,
     required this.onDuplicate,
     required this.onRename,
@@ -344,6 +355,7 @@ class DesktopTodoColumn extends StatelessWidget {
   final List<Todo> allTodos;
   final ScrollController controller;
   final int? selectedTodoId;
+  final bool isCurrent;
   final ValueChanged<Todo> onSelectTodo;
   final ValueChanged<Todo> onDuplicate;
   final ValueChanged<Todo> onRename;
@@ -363,7 +375,20 @@ class DesktopTodoColumn extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.surfaceVariant.withAlpha(120),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.cardBorder),
+        border: Border.all(
+          color: isCurrent ? AppColors.accentLight : AppColors.cardBorder,
+          width: isCurrent ? 3 : 1,
+        ),
+        boxShadow: isCurrent
+            ? const [
+                BoxShadow(
+                  color: Color(0x803E67FF),
+                  blurRadius: 18,
+                  spreadRadius: 1,
+                  offset: Offset(0, 8),
+                ),
+              ]
+            : null,
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(18),
@@ -525,7 +550,7 @@ class DesktopTodoTile extends StatelessWidget {
                 },
                 itemBuilder: (context) => const [
                   PopupMenuItem(value: 'add-child', child: Text('Add Child Task')),
-                  PopupMenuItem(value: 'duplicate', child: Text('Duplicate Task')),
+                  PopupMenuItem(value: 'duplicate', child: Text('Copy')),
                   PopupMenuItem(value: 'rename', child: Text('Rename Task')),
                   PopupMenuItem(value: 'delete', child: Text('Delete Task')),
                 ],
@@ -536,4 +561,41 @@ class DesktopTodoTile extends StatelessWidget {
       ),
     );
   }
+}
+
+void desktopTodoPreviewNoop() {}
+
+void desktopTodoPreviewTodoNoop(Todo todo) {}
+
+void desktopTodoPreviewPathNoop(List<int> path) {}
+
+@Preview(name: 'Current child task list', group: 'Notes', size: Size(720, 480))
+Widget desktopTodoColumnSelectionPreview() {
+  const parentTodo = Todo(id: 1, name: 'Parent task');
+  const childTodo = Todo(id: 2, name: 'Current child task', parentTodoId: 1);
+  return MaterialApp(
+    theme: buildAppTheme(),
+    home: Scaffold(
+      backgroundColor: AppColors.background,
+      body: DesktopTodoDrilldown(
+        category: const Category(id: 1, name: 'Preview category', todoFileId: 1),
+        todos: const [parentTodo, childTodo],
+        loadError: null,
+        todoSortOrder: TodoSortOrder.newest,
+        selectedTodoPath: const [1, 2],
+        selectedTodoRevealRequestId: 0,
+        expandedTodoId: signal<int?>(null),
+        selectedTodo: childTodo,
+        scrollToTopRequestId: 0,
+        onCreateTodo: desktopTodoPreviewNoop,
+        onCreateChildTodo: desktopTodoPreviewTodoNoop,
+        onSelectTodo: desktopTodoPreviewPathNoop,
+        onTodoDuplicate: desktopTodoPreviewTodoNoop,
+        onTodoRename: desktopTodoPreviewTodoNoop,
+        onTodoDelete: desktopTodoPreviewTodoNoop,
+        onTodoToggle: desktopTodoPreviewTodoNoop,
+        onTodoSortMenu: desktopTodoPreviewNoop,
+      ),
+    ),
+  );
 }

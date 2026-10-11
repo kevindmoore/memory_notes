@@ -104,10 +104,11 @@ class NotesQueryService {
   }) {
     final sorted = categories.toList(growable: false);
     sorted.sort((a, b) {
-      // All-done categories sink to the bottom regardless of sort order.
-      final aDone = _isCategoryAllDone(a, todosByCategory);
-      final bDone = _isCategoryAllDone(b, todosByCategory);
-      if (aDone != bDone) return aDone ? 1 : -1;
+      if (sortOrder != CategorySortOrder.newest) {
+        final aDone = _isCategoryAllDone(a, todosByCategory);
+        final bDone = _isCategoryAllDone(b, todosByCategory);
+        if (aDone != bDone) return aDone ? 1 : -1;
+      }
 
       switch (sortOrder) {
         case CategorySortOrder.nameAZ:

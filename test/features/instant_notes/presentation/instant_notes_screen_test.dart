@@ -14,6 +14,45 @@ import 'package:signals/signals.dart';
 import 'package:supa_manager/supa_manager.dart';
 
 void main() {
+  testWidgets('failed instant note save keeps text and shows a save failure', (tester) async {
+    final repository = _FailingInstantNoteRepository();
+    final store = InstantNotesStore(repository, TodoController(_FakeTodoRepository()));
+    await tester.pumpWidget(MaterialApp(home: InstantNotesScreen(
+      instantNotes: store,
+      todoFiles: TodoFileController(_FakeTodoFileRepository()),
+      categories: CategoryController(_FakeCategoryRepository()),
+      speech: _FakeSpeechController(),
+    )));
+    await tester.pump();
+    await tester.enterText(find.byType(TextField), 'Remember this offline');
+    await tester.tap(find.text('Save Instant Note'));
+    await tester.pump();
+    expect(tester.widget<TextField>(find.byType(TextField)).controller!.text, 'Remember this offline');
+    expect(find.text('Couldn’t save. Your text is still here—check your connection and retry.'), findsOneWidget);
+    expect(find.text('Add a note before saving.'), findsNothing);
+    expect(store.isSaving.value, isFalse);
+  });
+
+  testWidgets('failed instant note load shows retry instead of an empty list', (tester) async {
+    final repository = _FailingInstantNoteRepository()..failLoad = true;
+    final store = InstantNotesStore(repository, TodoController(_FakeTodoRepository()));
+    await tester.pumpWidget(MaterialApp(home: InstantNotesScreen(
+      instantNotes: store,
+      todoFiles: TodoFileController(_FakeTodoFileRepository()),
+      categories: CategoryController(_FakeCategoryRepository()),
+      speech: _FakeSpeechController(),
+    )));
+    await tester.pump();
+    await tester.tap(find.byIcon(Icons.list_alt_rounded));
+    await tester.pump();
+    expect(find.text('No instant notes'), findsNothing);
+    expect(find.text('Retry'), findsOneWidget);
+    repository.failLoad = false;
+    await tester.tap(find.text('Retry'));
+    await tester.pump();
+    expect(find.text('No instant notes'), findsOneWidget);
+  });
+
   testWidgets('saving while listening clears the field after late speech completion', (
     tester,
   ) async {
@@ -200,9 +239,8 @@ class _FakeSpeechController extends SpeechController {
 }
 
 class _FakeInstantNoteRepository extends InstantNoteRepository {
-  _FakeInstantNoteRepository({List<InstantNote> notes = const []})
-      : _notes = notes,
-        super(_FakeDatabaseManager());
+  _FakeInstantNoteRepository({this._notes = const []})
+      : super(_FakeDatabaseManager());
 
   final addedNotes = <String>[];
   final updatedNotes = <String>[];
@@ -248,3 +286,16 @@ class _FakeTodoRepository extends TodoRepository {
 }
 
 class _FakeDatabaseManager extends Fake implements SupaDatabaseManager {}
+
+class _FailingInstantNoteRepository extends _FakeInstantNoteRepository {
+  bool failLoad = false;
+
+  @override
+  Future<List<InstantNote>> getAll() async {
+    if (failLoad) throw TimeoutException('Offline');
+    return [];
+  }
+
+  @override
+  Future<InstantNote?> add(String notes) async => null;
+}

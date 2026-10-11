@@ -1,3 +1,4 @@
+import 'package:memory_notes/core/presentation/connection_banner.dart';
 import 'package:auto_route/auto_route.dart';
 import 'package:flutter/material.dart';
 import 'package:memory_notes/app/router/app_router.dart';
@@ -197,6 +198,15 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
               if (viewState.isLoading) {
                 return const Center(
                   child: CircularProgressIndicator(color: AppColors.accent),
+                );
+              }
+              if (viewState.categories.isEmpty && widget.notesMobile.categories.error.value != null) {
+                return LoadErrorView(
+                  error: widget.notesMobile.categories.error.value!,
+                  onRetry: () async {
+                    widget.notesMobile.categories.resetLoadBackoff();
+                    await widget.notesMobile.loadFile(_todoFileId);
+                  },
                 );
               }
               if (viewState.categories.isEmpty) return _buildEmpty();

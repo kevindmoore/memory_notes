@@ -1,3 +1,4 @@
+import 'package:memory_notes/core/presentation/connection_banner.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -160,7 +161,9 @@ class _InstantNotesScreenState extends State<InstantNotesScreen>
     final created = await widget.instantNotes.create(noteText);
     if (!mounted) return;
     if (created == null) {
-      _showMessage('Add a note before saving.');
+      _showMessage(noteText.trim().isEmpty
+          ? 'Add a note before saving.'
+          : 'Couldn’t save. Your text is still here—check your connection and retry.');
       return;
     }
     _noteController.clear();
@@ -323,6 +326,12 @@ class _InstantNotesScreenState extends State<InstantNotesScreen>
         final isLoading = widget.instantNotes.isLoading.value;
         if (isLoading && notes.isEmpty) {
           return const Center(child: CircularProgressIndicator(color: AppColors.accent));
+        }
+        if (notes.isEmpty && widget.instantNotes.error.value != null) {
+          return LoadErrorView(
+            error: widget.instantNotes.error.value!,
+            onRetry: widget.instantNotes.load,
+          );
         }
         if (notes.isEmpty) {
           return const Center(

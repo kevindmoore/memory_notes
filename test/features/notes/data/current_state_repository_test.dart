@@ -103,5 +103,51 @@ void main() {
       expect(state.openFileIds, [4]);
       expect(state.selectedFileId, 4);
     });
+
+    test('recognizes an explicitly empty user-scoped workspace state', () async {
+      SharedPreferences.setMockInitialValues({
+        'device_workspace_state': '{"openFileIds":[1,2,3],"selectedFileId":2}',
+        'device_workspace_state_user-a': '{"openFileIds":[],"selectedFileId":null}',
+      });
+      final prefs = await SharedPreferences.getInstance();
+      final repository = DeviceWorkspaceStateRepository(
+        currentUserId: () => 'user-a',
+        prefs: prefs,
+      );
+
+      final state = await repository.getWorkspaceState();
+
+      expect(await repository.hasWorkspaceState(), isTrue);
+      expect(state.openFileIds, isEmpty);
+      expect(state.selectedFileId, isNull);
+    });
+
+    test('persists desktop pane widths separately from workspace state', () async {
+      SharedPreferences.setMockInitialValues({
+        'device_workspace_state_user-a': '{"openFileIds":[1],"selectedFileId":1}',
+      });
+      final prefs = await SharedPreferences.getInstance();
+      final repository = DeviceWorkspaceStateRepository(
+        currentUserId: () => 'user-a',
+        prefs: prefs,
+      );
+
+      await repository.saveDesktopWorkspaceLayout(
+        const DesktopWorkspaceLayout(
+          sidebarWidth: 440,
+          categoryRailWidth: 280,
+          todoDrilldownWidth: 520,
+        ),
+      );
+
+      final layout = await repository.getDesktopWorkspaceLayout();
+      final workspaceState = await repository.getWorkspaceState();
+
+      expect(layout.sidebarWidth, 440);
+      expect(layout.categoryRailWidth, 280);
+      expect(layout.todoDrilldownWidth, 520);
+      expect(workspaceState.openFileIds, [1]);
+      expect(workspaceState.selectedFileId, 1);
+    });
   });
 }

@@ -80,10 +80,10 @@ class _LoginScreenState extends State<LoginScreen> {
                       hint: 'Repeat password',
                     ),
                   ],
-                  if (!_isCreateMode) ...[const SizedBox(height: 12), _buildForgotPassword()],
+                  if (!_isCreateMode) ...[const SizedBox(height: 12), _buildForgotPassword(isLoading)],
                   if (error != null) ...[const SizedBox(height: 12), _buildError(error)],
                   const SizedBox(height: 28),
-                  _buildPrimaryButton(isLoading, auth),
+                  _buildPrimaryButton(isLoading),
                   if (!_isCreateMode) ...[
                     const SizedBox(height: 12),
                     _buildGoogleButton(isLoading),
@@ -142,6 +142,11 @@ class _LoginScreenState extends State<LoginScreen> {
           keyboardType: TextInputType.emailAddress,
           textInputAction: TextInputAction.next,
           style: const TextStyle(color: AppColors.textPrimary),
+          onChanged: (_) {
+            if (_auth.errorMessage.value != null) {
+              _auth.errorMessage.value = null;
+            }
+          },
           decoration: const InputDecoration(
             hintText: 'you@example.com',
             prefixIcon: Icon(Icons.email_outlined, color: AppColors.textDisabled, size: 20),
@@ -175,7 +180,12 @@ class _LoginScreenState extends State<LoginScreen> {
           obscureText: hidden,
           textInputAction: TextInputAction.done,
           style: const TextStyle(color: AppColors.textPrimary),
-          onSubmitted: (_) => _handlePrimary(widget.auth),
+          onChanged: (_) {
+            if (_auth.errorMessage.value != null) {
+              _auth.errorMessage.value = null;
+            }
+          },
+          onSubmitted: (_) => _handlePrimary(),
           decoration: InputDecoration(
             hintText: hint,
             prefixIcon: const Icon(Icons.lock_outline, color: AppColors.textDisabled, size: 20),
@@ -193,21 +203,36 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  Widget _buildForgotPassword() {
+  Widget _buildForgotPassword(bool isLoading) {
     return Align(
       alignment: Alignment.centerRight,
       child: TextButton(
-        onPressed: () {
-          if (_emailCtrl.text.isEmpty) {
-            _showSnack('Enter your email to reset password');
-            return;
-          }
-          _auth.resetPassword(_emailCtrl.text);
-          _showSnack('Password reset email sent');
-        },
+        onPressed: isLoading ? null : _handleForgotPassword,
         child: const Text('Forgot password?', style: TextStyle(color: AppColors.accentLight)),
       ),
     );
+  }
+
+  Future<void> _handleForgotPassword() async {
+    final email = _emailCtrl.text.trim();
+    if (email.isEmpty) {
+      _showSnack('Enter your email to reset password');
+      return;
+    }
+    if (!email.contains('@') || !email.contains('.')) {
+      _showSnack('Please enter a valid email address');
+      return;
+    }
+
+    final success = await _auth.resetPassword(email);
+    if (!mounted) return;
+
+    if (success) {
+      _showSnack('Password reset email sent to $email');
+    } else {
+      final error = _auth.errorMessage.value ?? 'Failed to send password reset email';
+      _showSnack(error);
+    }
   }
 
   Widget _buildError(String error) {
@@ -230,11 +255,11 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  Widget _buildPrimaryButton(bool isLoading, dynamic auth) {
+  Widget _buildPrimaryButton(bool isLoading) {
     return SizedBox(
       width: double.infinity,
       child: ElevatedButton(
-        onPressed: isLoading ? null : () => _handlePrimary(auth),
+        onPressed: isLoading ? null : _handlePrimary,
         child: isLoading
             ? const SizedBox(
                 height: 20,
@@ -281,7 +306,7 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  Future<void> _handlePrimary(dynamic auth) async {
+  Future<void> _handlePrimary() async {
     final email = _emailCtrl.text.trim();
     final password = _passwordCtrl.text;
 

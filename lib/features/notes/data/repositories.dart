@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
@@ -5,7 +6,27 @@ import 'package:lumberdash/lumberdash.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supa_manager/supa_manager.dart';
 
+import 'package:memory_notes/core/services/connection_service.dart';
+
 import 'models.dart';
+
+Future<Result<T>> _request<T>(
+  Future<Result<T>> Function() operation,
+  ConnectionService? connection,
+) => connection == null
+    ? operation().timeout(ConnectionService.requestTimeout)
+    : connection.run(operation);
+
+void _requireSuccess<T>(Result<T> result) {
+  switch (result) {
+    case Success():
+      return;
+    case Failure(error: final error):
+      throw error;
+    case ErrorMessage(message: final message):
+      throw StateError(message ?? 'Request failed');
+  }
+}
 
 // ---------------------------------------------------------------------------
 // TodoFileRepository
@@ -15,10 +36,12 @@ class TodoFileRepository {
   final SupaDatabaseManager _db;
   final _tableData = TodoFileTableData();
 
-  TodoFileRepository(this._db);
+  TodoFileRepository(this._db, {this.connection});
+
+  final ConnectionService? connection;
 
   Future<List<TodoFile>> getAll() async {
-    final result = await _db.readEntries(_tableData);
+    final result = await _request(() => _db.readEntries(_tableData), connection);
     switch (result) {
       case Success(data: final data):
         return data;
@@ -33,7 +56,7 @@ class TodoFileRepository {
 
   Future<TodoFile?> add(String name) async {
     final entry = TodoFileTableEntry(TodoFile(name: name));
-    final result = await _db.addEntry(_tableData, entry);
+    final result = await _request(() => _db.addEntry(_tableData, entry), connection);
     switch (result) {
       case Success(data: final data):
         return data;
@@ -45,7 +68,7 @@ class TodoFileRepository {
 
   Future<TodoFile?> update(TodoFile file) async {
     final entry = TodoFileTableEntry(file);
-    final result = await _db.updateTableEntry(_tableData, entry);
+    final result = await _request(() => _db.updateTableEntry(_tableData, entry), connection);
     switch (result) {
       case Success(data: final data):
         return data;
@@ -59,11 +82,11 @@ class TodoFileRepository {
     int id,
     DateTime timestamp,
   ) async {
-    final result = await _db.updateTableEntryWhere<TodoFile>(
+    final result = await _request(() => _db.updateTableEntryWhere<TodoFile>(
       _tableData,
       {'last_updated': timestamp.toIso8601String()},
       [SelectEntry.and('id', '$id')],
-    );
+    ), connection);
     switch (result) {
       case Success():
         return true;
@@ -73,7 +96,12 @@ class TodoFileRepository {
     }
   }
 
-  Future<void> delete(int id) => _db.deleteTableEntryWhere(_tableData, 'id', id);
+  Future<void> delete(int id) async {
+    final result = await _request(
+      () => _db.deleteTableEntryWhere(_tableData, 'id', id), connection,
+    );
+    _requireSuccess(result);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -84,14 +112,16 @@ class CategoryRepository {
   final SupaDatabaseManager _db;
   final _tableData = CategoryTableData();
 
-  CategoryRepository(this._db);
+  CategoryRepository(this._db, {this.connection});
+
+  final ConnectionService? connection;
 
   Future<List<Category>> getByTodoFile(int todoFileId) async {
-    final result = await _db.readEntriesWhere(
+    final result = await _request(() => _db.readEntriesWhere(
       _tableData,
       todoFileIdName,
       todoFileId,
-    );
+    ), connection);
     switch (result) {
       case Success(data: final data):
         return data;
@@ -106,7 +136,7 @@ class CategoryRepository {
 
   Future<Category?> add(Category category, int todoFileId) async {
     final entry = CategoryTableEntry(category, todoFileId);
-    final result = await _db.addEntry(_tableData, entry);
+    final result = await _request(() => _db.addEntry(_tableData, entry), connection);
     switch (result) {
       case Success(data: final data):
         return data;
@@ -118,7 +148,7 @@ class CategoryRepository {
 
   Future<Category?> update(Category category, int todoFileId) async {
     final entry = CategoryTableEntry(category, todoFileId);
-    final result = await _db.updateTableEntry(_tableData, entry);
+    final result = await _request(() => _db.updateTableEntry(_tableData, entry), connection);
     switch (result) {
       case Success(data: final data):
         return data;
@@ -132,11 +162,11 @@ class CategoryRepository {
     int id,
     DateTime timestamp,
   ) async {
-    final result = await _db.updateTableEntryWhere<Category>(
+    final result = await _request(() => _db.updateTableEntryWhere<Category>(
       _tableData,
       {'last_updated': timestamp.toIso8601String()},
       [SelectEntry.and('id', '$id')],
-    );
+    ), connection);
     switch (result) {
       case Success():
         return true;
@@ -146,7 +176,12 @@ class CategoryRepository {
     }
   }
 
-  Future<void> delete(int id) => _db.deleteTableEntryWhere(_tableData, 'id', id);
+  Future<void> delete(int id) async {
+    final result = await _request(
+      () => _db.deleteTableEntryWhere(_tableData, 'id', id), connection,
+    );
+    _requireSuccess(result);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -157,14 +192,16 @@ class TodoRepository {
   final SupaDatabaseManager _db;
   final _tableData = TodoTableData();
 
-  TodoRepository(this._db);
+  TodoRepository(this._db, {this.connection});
+
+  final ConnectionService? connection;
 
   Future<List<Todo>> getByCategory(int categoryId) async {
-    final result = await _db.readEntriesWhere(
+    final result = await _request(() => _db.readEntriesWhere(
       _tableData,
       categoryIdName,
       categoryId,
-    );
+    ), connection);
     switch (result) {
       case Success(data: final data):
         final sorted = List<Todo>.from(data)..sort((a, b) => a.order.compareTo(b.order));
@@ -180,7 +217,7 @@ class TodoRepository {
 
   Future<Todo?> add(Todo todo, int todoFileId, int categoryId) async {
     final entry = TodoTableEntry(todo, todoFileId, categoryId);
-    final result = await _db.addEntry(_tableData, entry);
+    final result = await _request(() => _db.addEntry(_tableData, entry), connection);
     switch (result) {
       case Success(data: final data):
         return data;
@@ -192,7 +229,7 @@ class TodoRepository {
 
   Future<Todo?> update(Todo todo, int todoFileId, int categoryId) async {
     final entry = TodoTableEntry(todo, todoFileId, categoryId);
-    final result = await _db.updateTableEntry(_tableData, entry);
+    final result = await _request(() => _db.updateTableEntry(_tableData, entry), connection);
     switch (result) {
       case Success(data: final data):
         return data;
@@ -206,11 +243,11 @@ class TodoRepository {
     int id,
     DateTime timestamp,
   ) async {
-    final result = await _db.updateTableEntryWhere<Todo>(
+    final result = await _request(() => _db.updateTableEntryWhere<Todo>(
       _tableData,
       {'last_updated': timestamp.toIso8601String()},
       [SelectEntry.and('id', '$id')],
-    );
+    ), connection);
     switch (result) {
       case Success():
         return true;
@@ -220,7 +257,12 @@ class TodoRepository {
     }
   }
 
-  Future<void> delete(int id) => _db.deleteTableEntryWhere(_tableData, 'id', id);
+  Future<void> delete(int id) async {
+    final result = await _request(
+      () => _db.deleteTableEntryWhere(_tableData, 'id', id), connection,
+    );
+    _requireSuccess(result);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -231,10 +273,12 @@ class InstantNoteRepository {
   final SupaDatabaseManager _db;
   final _tableData = InstantNoteTableData();
 
-  InstantNoteRepository(this._db);
+  InstantNoteRepository(this._db, {this.connection});
+
+  final ConnectionService? connection;
 
   Future<List<InstantNote>> getAll() async {
-    final result = await _db.readEntries(_tableData);
+    final result = await _request(() => _db.readEntries(_tableData), connection);
     switch (result) {
       case Success(data: final data):
         final sorted = List<InstantNote>.from(data)
@@ -262,7 +306,7 @@ class InstantNoteRepository {
         createdAt: now,
       ),
     );
-    final result = await _db.addEntry(_tableData, entry);
+    final result = await _request(() => _db.addEntry(_tableData, entry), connection);
     switch (result) {
       case Success(data: final data):
         return data;
@@ -274,7 +318,7 @@ class InstantNoteRepository {
 
   Future<InstantNote?> update(InstantNote instantNote) async {
     final entry = InstantNoteTableEntry(instantNote);
-    final result = await _db.updateTableEntry(_tableData, entry);
+    final result = await _request(() => _db.updateTableEntry(_tableData, entry), connection);
     switch (result) {
       case Success(data: final data):
         return data;
@@ -284,7 +328,12 @@ class InstantNoteRepository {
     }
   }
 
-  Future<void> delete(int id) => _db.deleteTableEntryWhere(_tableData, 'id', id);
+  Future<void> delete(int id) async {
+    final result = await _request(
+      () => _db.deleteTableEntryWhere(_tableData, 'id', id), connection,
+    );
+    _requireSuccess(result);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -317,11 +366,29 @@ class PersistedWorkspaceState {
   final Map<int, PersistedWorkspaceSelection> selectionsByFile;
 }
 
+class DesktopWorkspaceLayout {
+  const DesktopWorkspaceLayout({
+    this.sidebarWidth = defaultSidebarWidth,
+    this.categoryRailWidth = defaultCategoryRailWidth,
+    this.todoDrilldownWidth = defaultTodoDrilldownWidth,
+  });
+
+  static const defaultSidebarWidth = 360.0;
+  static const defaultCategoryRailWidth = 320.0;
+  static const defaultTodoDrilldownWidth = 360.0;
+
+  final double sidebarWidth;
+  final double categoryRailWidth;
+  final double todoDrilldownWidth;
+}
+
 class CurrentStateRepository {
   final SupaDatabaseManager _db;
   final _tableData = CurrentStateTableData();
 
-  CurrentStateRepository(this._db);
+  CurrentStateRepository(this._db, {this.connection});
+
+  final ConnectionService? connection;
 
   static const _workspaceStateVersion = 2;
 
@@ -331,11 +398,11 @@ class CurrentStateRepository {
       return null;
     }
 
-    final result = await _db.readEntriesWhere(
+    final result = await _request(() => _db.readEntriesWhere(
       _tableData,
       userIdFieldName,
       currentUserId,
-    );
+    ), connection);
     switch (result) {
       case Success(data: final data):
         return selectLatestCurrentState(
@@ -431,29 +498,53 @@ class CurrentStateRepository {
   }
 
   Future<void> saveCurrentFileIds(List<int> fileIds) async {
+    final existingState = await getWorkspaceState();
+    await saveWorkspaceState(
+      openFileIds: fileIds,
+      selectedFileId: existingState.selectedFileId,
+      selectionsByFile: existingState.selectionsByFile,
+    );
+  }
+
+  Future<void> saveWorkspaceState({
+    required List<int> openFileIds,
+    required int? selectedFileId,
+    required Map<int, PersistedWorkspaceSelection> selectionsByFile,
+  }) async {
+    final normalizedSelections = <String, Map<String, dynamic>>{};
+    for (final entry in selectionsByFile.entries) {
+      normalizedSelections['${entry.key}'] = <String, dynamic>{
+        if (entry.value.categoryId != null) 'categoryId': entry.value.categoryId,
+        if (entry.value.todoId != null) 'todoId': entry.value.todoId,
+        'todoPath': entry.value.todoPath,
+        'desktopScrollOffset': entry.value.desktopScrollOffset,
+      };
+    }
     final filesString = jsonEncode(<String, dynamic>{
       'version': _workspaceStateVersion,
-      'openFileIds': fileIds,
+      'openFileIds': openFileIds,
+      'selectedFileId': ?selectedFileId,
+      'selectionsByFile': normalizedSelections,
     });
     final currentState = await getCurrentState();
 
     if (currentState == null) {
-      final result = await _db.addEntry(
+      final result = await _request(() => _db.addEntry(
         _tableData,
         CurrentStateTableEntry(CurrentState(currentFiles: filesString)),
-      );
+      ), connection);
       switch (result) {
         case Success():
           return;
         case Failure(error: final error):
-          logError('CurrentStateRepository.saveCurrentFileIds add: $error');
+          logError('CurrentStateRepository.saveWorkspaceState add: $error');
         case ErrorMessage(message: final message, code: _):
-          logError('CurrentStateRepository.saveCurrentFileIds add: $message');
+          logError('CurrentStateRepository.saveWorkspaceState add: $message');
       }
       return;
     }
 
-    final result = await _db.updateTableEntry(
+    final result = await _request(() => _db.updateTableEntry(
       _tableData,
       CurrentStateTableEntry(
         currentState.copyWith(
@@ -461,14 +552,14 @@ class CurrentStateRepository {
           lastUpdated: DateTime.now(),
         ),
       ),
-    );
+    ), connection);
     switch (result) {
       case Success():
         return;
       case Failure(error: final error):
-        logError('CurrentStateRepository.saveCurrentFileIds update: $error');
+        logError('CurrentStateRepository.saveWorkspaceState update: $error');
       case ErrorMessage(message: final message, code: _):
-        logError('CurrentStateRepository.saveCurrentFileIds update: $message');
+        logError('CurrentStateRepository.saveWorkspaceState update: $message');
     }
   }
 }
@@ -484,15 +575,32 @@ class DeviceWorkspaceStateRepository {
 
   static const _workspaceStateVersion = 2;
   static const _storageKeyPrefix = 'device_workspace_state';
+  static const _desktopWorkspaceLayoutStorageKeyPrefix = 'desktop_workspace_layout';
 
   Future<PersistedWorkspaceState> getWorkspaceState() async {
     final prefs = await _instance;
-    final workspaceState = _decodeWorkspaceState(prefs.getString(_storageKey));
-    if (_hasWorkspaceStateContent(workspaceState) || _storageKey == _storageKeyPrefix) {
-      return workspaceState;
+    final rawWorkspaceState = prefs.getString(_storageKey);
+    if (rawWorkspaceState != null && rawWorkspaceState.trim().isNotEmpty) {
+      return _decodeWorkspaceState(rawWorkspaceState);
+    }
+    if (_storageKey == _storageKeyPrefix) {
+      return const PersistedWorkspaceState();
     }
 
     return _decodeWorkspaceState(prefs.getString(_storageKeyPrefix));
+  }
+
+  Future<bool> hasWorkspaceState() async {
+    final prefs = await _instance;
+    final rawWorkspaceState = prefs.getString(_storageKey);
+    if (rawWorkspaceState != null && rawWorkspaceState.trim().isNotEmpty) {
+      return true;
+    }
+    if (_storageKey == _storageKeyPrefix) {
+      return false;
+    }
+    final legacyWorkspaceState = prefs.getString(_storageKeyPrefix);
+    return legacyWorkspaceState != null && legacyWorkspaceState.trim().isNotEmpty;
   }
 
   PersistedWorkspaceState _decodeWorkspaceState(String? rawValue) {
@@ -528,12 +636,6 @@ class DeviceWorkspaceStateRepository {
     }
   }
 
-  bool _hasWorkspaceStateContent(PersistedWorkspaceState state) {
-    return state.openFileIds.isNotEmpty ||
-        state.selectedFileId != null ||
-        state.selectionsByFile.isNotEmpty;
-  }
-
   Future<void> saveWorkspaceState({
     required List<int> openFileIds,
     required int? selectedFileId,
@@ -558,11 +660,52 @@ class DeviceWorkspaceStateRepository {
     await prefs.setString(_storageKey, filesString);
   }
 
+  Future<DesktopWorkspaceLayout> getDesktopWorkspaceLayout() async {
+    final prefs = await _instance;
+    final rawLayout = prefs.getString(_desktopWorkspaceLayoutStorageKey);
+    if (rawLayout == null || rawLayout.trim().isEmpty) {
+      return const DesktopWorkspaceLayout();
+    }
+
+    try {
+      final decoded = jsonDecode(rawLayout);
+      if (decoded is! Map<String, dynamic>) {
+        throw const FormatException('Desktop workspace layout is not a JSON object.');
+      }
+      return DesktopWorkspaceLayout(
+        sidebarWidth: _parseDouble(decoded['sidebarWidth']) ?? DesktopWorkspaceLayout.defaultSidebarWidth,
+        categoryRailWidth:
+            _parseDouble(decoded['categoryRailWidth']) ?? DesktopWorkspaceLayout.defaultCategoryRailWidth,
+        todoDrilldownWidth:
+            _parseDouble(decoded['todoDrilldownWidth']) ?? DesktopWorkspaceLayout.defaultTodoDrilldownWidth,
+      );
+    } catch (_) {
+      return const DesktopWorkspaceLayout();
+    }
+  }
+
+  Future<void> saveDesktopWorkspaceLayout(DesktopWorkspaceLayout layout) async {
+    final prefs = await _instance;
+    final rawLayout = jsonEncode(<String, double>{
+      'sidebarWidth': layout.sidebarWidth,
+      'categoryRailWidth': layout.categoryRailWidth,
+      'todoDrilldownWidth': layout.todoDrilldownWidth,
+    });
+    await prefs.setString(_desktopWorkspaceLayoutStorageKey, rawLayout);
+  }
+
   Future<SharedPreferences> get _instance async => prefs ??= await SharedPreferences.getInstance();
 
   String get _storageKey {
     final userId = currentUserId();
     return userId == null ? _storageKeyPrefix : '${_storageKeyPrefix}_$userId';
+  }
+
+  String get _desktopWorkspaceLayoutStorageKey {
+    final userId = currentUserId();
+    return userId == null
+        ? _desktopWorkspaceLayoutStorageKeyPrefix
+        : '${_desktopWorkspaceLayoutStorageKeyPrefix}_$userId';
   }
 }
 

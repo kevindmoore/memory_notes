@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:memory_notes/features/notes/application/category_controller.dart';
 import 'package:memory_notes/features/notes/application/notes_query_service.dart';
@@ -12,6 +14,27 @@ import 'package:supa_manager/supa_manager.dart';
 
 void main() {
   group('NotesWorkspaceStore', () {
+    test('offline startup preserves saved workspace and can initialize after reconnecting', () async {
+      final files = _FakeTodoFileRepository([const TodoFile(id: 1, name: 'Inbox')])
+        ..throwOnNextGetAll = TimeoutException('Offline');
+      final saved = _FakeDeviceWorkspaceStateRepository()
+        ..workspaceState = const PersistedWorkspaceState(openFileIds: [1], selectedFileId: 1);
+      final store = _buildStore(
+        fileRepository: files,
+        categoryRepository: _FakeCategoryRepository({}),
+        todoRepository: _FakeTodoRepository({}),
+        deviceWorkspaceState: saved,
+      );
+      await store.initialize();
+      expect(store.todoFiles.error.value, isNotNull);
+      expect(saved.workspaceState.openFileIds, [1]);
+      expect(saved.saveWorkspaceStateCalls, 0);
+      await store.initialize();
+      expect(store.todoFiles.error.value, isNull);
+      expect(store.workspace.openFileIds.value, [1]);
+      expect(store.workspace.selectedFileId, 1);
+    });
+
     test(
       'initialize restores current files from device state and selects the first restored file',
       () async {
@@ -118,6 +141,33 @@ void main() {
       expect(deviceWorkspaceState.saveWorkspaceStateCalls, 0);
     });
 
+    test('initialize restores cloud workspace state when device state is missing', () async {
+      final deviceWorkspaceState = _FakeDeviceWorkspaceStateRepository()
+        ..containsWorkspaceState = false;
+      final cloudWorkspaceState = _FakeCloudWorkspaceStateRepository()
+        ..workspaceState = const PersistedWorkspaceState(
+          openFileIds: [2, 1],
+          selectedFileId: 2,
+        );
+      final store = _buildStore(
+        fileRepository: _FakeTodoFileRepository([
+          const TodoFile(id: 1, name: 'Alpha'),
+          const TodoFile(id: 2, name: 'Beta'),
+        ]),
+        categoryRepository: _FakeCategoryRepository(const {}),
+        todoRepository: _FakeTodoRepository(const {}),
+        deviceWorkspaceState: deviceWorkspaceState,
+        cloudWorkspaceState: cloudWorkspaceState,
+      );
+
+      await store.initialize();
+
+      expect(store.workspace.openFileIds.value, [2, 1]);
+      expect(store.workspace.selectedFileId, 2);
+      expect(deviceWorkspaceState.workspaceState.openFileIds, [2, 1]);
+      expect(deviceWorkspaceState.saveWorkspaceStateCalls, 1);
+    });
+
     test('loadTodos backs off after a failed read', () async {
       final todoRepository = _FakeTodoRepository({
         20: const [Todo(id: 200, name: 'Two', categoryId: 20)],
@@ -138,6 +188,26 @@ void main() {
       expect(todoRepository.getByCategoryCalls, 1);
       expect(store.todos.getTodosForCategory(20), isEmpty);
       expect(store.todos.error.value, contains('network blip'));
+    });
+
+    test('loadCategoriesForFiles backs off after a failed read', () async {
+      final categoryRepository = _FakeCategoryRepository({
+        2: [const Category(id: 20, name: 'Two', todoFileId: 2)],
+      });
+      final store = _buildStore(
+        fileRepository: _FakeTodoFileRepository(const []),
+        categoryRepository: categoryRepository,
+        todoRepository: _FakeTodoRepository(const {}),
+      );
+
+      categoryRepository.throwOnNextGetByTodoFile = StateError('network blip');
+
+      await store.categories.loadCategoriesForFiles(const [1]);
+      await store.categories.loadCategoriesForFiles(const [2]);
+
+      expect(categoryRepository.getByTodoFileCalls, 1);
+      expect(store.categories.categories.value, isEmpty);
+      expect(store.categories.error.value, contains('network blip'));
     });
 
     test('applyRemoteTodo updates a loaded todo without reloading the category', () async {
@@ -178,6 +248,28 @@ void main() {
         expect(deviceWorkspaceState.workspaceState.openFileIds, [2, 999, 1]);
       },
     );
+
+    test('persistCurrentFiles mirrors the workspace to cloud state when configured', () async {
+      final cloudWorkspaceState = _FakeCloudWorkspaceStateRepository();
+      final store = _buildStore(
+        fileRepository: _FakeTodoFileRepository([
+          const TodoFile(id: 1, name: 'Alpha'),
+          const TodoFile(id: 2, name: 'Beta'),
+        ]),
+        categoryRepository: _FakeCategoryRepository(const {}),
+        todoRepository: _FakeTodoRepository(const {}),
+        cloudWorkspaceState: cloudWorkspaceState,
+      );
+
+      await store.todoFiles.load();
+      store.workspace.setOpenFileIds([2, 1]);
+      store.workspace.selectFile(2);
+
+      await store.persistCurrentFiles();
+
+      expect(cloudWorkspaceState.workspaceState.openFileIds, [2, 1]);
+      expect(cloudWorkspaceState.workspaceState.selectedFileId, 2);
+    });
 
     test('sync and persist do not collapse saved open lists during a partial file load', () async {
       final deviceWorkspaceState = _FakeDeviceWorkspaceStateRepository()
@@ -737,6 +829,39 @@ void main() {
       expect(deviceWorkspaceState.workspaceState.selectionsByFile[1]?.todoPath, [100]);
     });
 
+    test('deleteTodo selects the next sibling when deleting the selected todo', () async {
+      final store = _buildStore(
+        fileRepository: _FakeTodoFileRepository([const TodoFile(id: 1, name: 'Alpha')]),
+        categoryRepository: _FakeCategoryRepository({
+          1: [const Category(id: 10, name: 'Inbox', todoFileId: 1)],
+        }),
+        todoRepository: _FakeTodoRepository({
+          10: const [
+            Todo(id: 100, name: 'First', todoFileId: 1, categoryId: 10),
+            Todo(id: 101, name: 'Second', todoFileId: 1, categoryId: 10),
+          ],
+        }),
+      );
+
+      await store.todoFiles.load();
+      await store.categories.loadCategories(1);
+      await store.todos.loadTodos(10);
+      store.workspace.selectTodo(
+        fileId: 1,
+        categoryId: 10,
+        todoId: 100,
+        todoPath: const [100],
+      );
+
+      await store.deleteTodo(
+        const Todo(id: 100, name: 'First', todoFileId: 1, categoryId: 10),
+        nextTodo: const Todo(id: 101, name: 'Second', todoFileId: 1, categoryId: 10),
+      );
+
+      expect(store.workspace.selectedTodoId, 101);
+      expect(store.workspace.selectedTodoPath, [101]);
+    });
+
     test('toggleTodo selects the parent when completing the selected child task', () async {
       final deviceWorkspaceState = _FakeDeviceWorkspaceStateRepository();
       final store = _buildStore(
@@ -1005,6 +1130,7 @@ NotesWorkspaceStore _buildStore({
   required _FakeCategoryRepository categoryRepository,
   required _FakeTodoRepository todoRepository,
   _FakeDeviceWorkspaceStateRepository? deviceWorkspaceState,
+  _FakeCloudWorkspaceStateRepository? cloudWorkspaceState,
 }) {
   final workspace = NotesWorkspaceController();
   final todoFiles = TodoFileController(fileRepository);
@@ -1013,6 +1139,7 @@ NotesWorkspaceStore _buildStore({
   return NotesWorkspaceStore(
     workspace: workspace,
     deviceWorkspaceState: deviceWorkspaceState ?? _FakeDeviceWorkspaceStateRepository(),
+    cloudWorkspaceState: cloudWorkspaceState,
     query: const NotesQueryService(),
     todoFiles: todoFiles,
     categories: categories,
@@ -1084,9 +1211,11 @@ class _FakeCategoryRepository extends CategoryRepository {
 
   final Map<int, List<Category>> _categoriesByFile;
   Object? throwOnNextGetByTodoFile;
+  int getByTodoFileCalls = 0;
 
   @override
   Future<List<Category>> getByTodoFile(int todoFileId) async {
+    getByTodoFileCalls += 1;
     final error = throwOnNextGetByTodoFile;
     throwOnNextGetByTodoFile = null;
     if (error != null) {
@@ -1225,7 +1354,11 @@ class _FakeDeviceWorkspaceStateRepository extends DeviceWorkspaceStateRepository
       super(currentUserId: () => 'test-user');
 
   PersistedWorkspaceState workspaceState;
+  bool containsWorkspaceState = true;
   int saveWorkspaceStateCalls = 0;
+
+  @override
+  Future<bool> hasWorkspaceState() async => containsWorkspaceState;
 
   @override
   Future<PersistedWorkspaceState> getWorkspaceState() async => PersistedWorkspaceState(
@@ -1241,6 +1374,30 @@ class _FakeDeviceWorkspaceStateRepository extends DeviceWorkspaceStateRepository
     required Map<int, PersistedWorkspaceSelection> selectionsByFile,
   }) async {
     saveWorkspaceStateCalls++;
+    workspaceState = PersistedWorkspaceState(
+      openFileIds: List<int>.from(openFileIds),
+      selectedFileId: selectedFileId,
+      selectionsByFile: Map<int, PersistedWorkspaceSelection>.from(selectionsByFile),
+    );
+  }
+}
+
+class _FakeCloudWorkspaceStateRepository extends CurrentStateRepository {
+  _FakeCloudWorkspaceStateRepository()
+    : workspaceState = const PersistedWorkspaceState(),
+      super(_StubDatabaseManager());
+
+  PersistedWorkspaceState workspaceState;
+
+  @override
+  Future<PersistedWorkspaceState> getWorkspaceState() async => workspaceState;
+
+  @override
+  Future<void> saveWorkspaceState({
+    required List<int> openFileIds,
+    required int? selectedFileId,
+    required Map<int, PersistedWorkspaceSelection> selectionsByFile,
+  }) async {
     workspaceState = PersistedWorkspaceState(
       openFileIds: List<int>.from(openFileIds),
       selectedFileId: selectedFileId,

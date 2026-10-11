@@ -18,6 +18,10 @@ class TodoController {
   DateTime? _lastLoadFailureAt;
   static const _loadFailureRetryDelay = Duration(seconds: 20);
 
+  void resetLoadBackoff() {
+    _lastLoadFailureAt = null;
+  }
+
   Future<bool> loadTodos(int categoryId) async {
     final lastLoadFailureAt = _lastLoadFailureAt;
     if (lastLoadFailureAt != null &&

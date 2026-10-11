@@ -17,6 +17,7 @@ class NotesWorkspaceStore {
   NotesWorkspaceStore({
     required this.workspace,
     required this.deviceWorkspaceState,
+    this.cloudWorkspaceState,
     required this.query,
     required this.todoFiles,
     required this.categories,
@@ -25,12 +26,14 @@ class NotesWorkspaceStore {
 
   final NotesWorkspaceController workspace;
   final DeviceWorkspaceStateRepository deviceWorkspaceState;
+  final CurrentStateRepository? cloudWorkspaceState;
   final NotesQueryService query;
   final TodoFileController todoFiles;
   final CategoryController categories;
   final TodoController todos;
   String? _lastPersistedWorkspaceSnapshot;
   Future<void>? _initializeFuture;
+  Future<void> _deleteTodoQueue = Future<void>.value();
 
   NotesWorkspaceViewState buildViewState({
     required NotesSortOrder sortOrder,
@@ -120,17 +123,22 @@ class NotesWorkspaceStore {
     }
     final initialize = _initialize();
     _initializeFuture = initialize;
-    return initialize;
+    await initialize;
+    if (todoFiles.error.value != null || categories.error.value != null) {
+      _initializeFuture = null;
+    }
   }
 
   Future<void> _initialize() async {
     await todoFiles.load();
+    if (todoFiles.error.value != null) return;
     await _restoreWorkspaceState();
     final fileIds = todoFiles.todoFiles.value
         .where((file) => file.id != null)
         .map((file) => file.id!)
         .toList();
     await categories.loadCategoriesForFiles(fileIds);
+    if (categories.error.value != null) return;
     if (workspace.selectedFileId != null) {
       await _loadTodosForFileCategories(workspace.selectedFileId!);
     } else if (workspace.selectedCategoryId != null) {
@@ -309,6 +317,7 @@ class NotesWorkspaceStore {
 
     if (allFileIds.isNotEmpty) {
       await categories.loadCategoriesForFiles(allFileIds);
+      if (categories.error.value != null) return;
     }
 
     final nextCategoryIds = categories.categories.value
@@ -329,7 +338,7 @@ class NotesWorkspaceStore {
     };
     for (final categoryId in categoryIdsToReload) {
       if (nextCategoryIds.contains(categoryId)) {
-        await todos.loadTodos(categoryId);
+        if (!await todos.loadTodos(categoryId)) return;
       }
     }
 
@@ -360,13 +369,18 @@ class NotesWorkspaceStore {
     persistCurrentFiles();
   }
 
-  Future<void> persistCurrentFiles() {
+  Future<void> persistCurrentFiles() async {
     final persistencePlan = _buildWorkspacePersistencePlan();
     if (_lastPersistedWorkspaceSnapshot == persistencePlan.deviceWorkspaceSerialized) {
-      return Future.value();
+      return;
     }
     _lastPersistedWorkspaceSnapshot = persistencePlan.deviceWorkspaceSerialized;
-    return deviceWorkspaceState.saveWorkspaceState(
+    await deviceWorkspaceState.saveWorkspaceState(
+      openFileIds: persistencePlan.openFileIds,
+      selectedFileId: persistencePlan.selectedFileId,
+      selectionsByFile: persistencePlan.selectionsByFile,
+    );
+    await cloudWorkspaceState?.saveWorkspaceState(
       openFileIds: persistencePlan.openFileIds,
       selectedFileId: persistencePlan.selectedFileId,
       selectionsByFile: persistencePlan.selectionsByFile,
@@ -455,7 +469,13 @@ class NotesWorkspaceStore {
     await persistCurrentFiles();
   }
 
-  Future<void> deleteTodo(Todo todo) async {
+  Future<void> deleteTodo(Todo todo, {Todo? nextTodo}) {
+    final deletion = _deleteTodoQueue.then((_) => _deleteTodo(todo, nextTodo: nextTodo));
+    _deleteTodoQueue = deletion.catchError((_) {});
+    return deletion;
+  }
+
+  Future<void> _deleteTodo(Todo todo, {Todo? nextTodo}) async {
     final fileId = todo.todoFileId;
     final categoryId = todo.categoryId;
     final deletedTodoId = todo.id;
@@ -464,16 +484,25 @@ class NotesWorkspaceStore {
         deletedTodoId != null &&
         workspace.selectedTodoId == deletedTodoId) {
       final allTodos = query.todosForCategory(todos.todosByCategory.value, categoryId);
-      final parentTodo = query.findTodoById(allTodos, todo.parentTodoId);
-      if (parentTodo?.id != null) {
+      if (nextTodo?.id != null && nextTodo?.parentTodoId == todo.parentTodoId) {
         workspace.selectTodo(
           fileId: fileId,
           categoryId: categoryId,
-          todoId: parentTodo!.id!,
-          todoPath: <int>[...query.buildAncestorTodoIds(parentTodo, allTodos), parentTodo.id!],
+          todoId: nextTodo!.id!,
+          todoPath: <int>[...query.buildAncestorTodoIds(nextTodo, allTodos), nextTodo.id!],
         );
       } else {
-        workspace.selectCategory(fileId: fileId, categoryId: categoryId);
+        final parentTodo = query.findTodoById(allTodos, todo.parentTodoId);
+        if (parentTodo?.id != null) {
+          workspace.selectTodo(
+            fileId: fileId,
+            categoryId: categoryId,
+            todoId: parentTodo!.id!,
+            todoPath: <int>[...query.buildAncestorTodoIds(parentTodo, allTodos), parentTodo.id!],
+          );
+        } else {
+          workspace.selectCategory(fileId: fileId, categoryId: categoryId);
+        }
       }
     }
 
@@ -506,7 +535,8 @@ class NotesWorkspaceStore {
 
   Future<void> saveTodoNotes(Todo todo, String notes) async {
     if (notes == todo.notes) return;
-    await todos.updateTodo(todo.copyWith(notes: notes));
+    final saved = await todos.updateTodo(todo.copyWith(notes: notes));
+    if (saved == null) throw StateError('Could not save notes.');
     syncWorkspace();
   }
 
@@ -528,6 +558,7 @@ class NotesWorkspaceStore {
 
   Future<void> _loadTodosForFileCategories(int fileId, {bool forceReload = false}) async {
     final fileCategories = query.categoriesForFile(categories.categories.value, fileId);
+    final categoryIdsToLoad = <int>[];
     for (final category in fileCategories) {
       final categoryId = category.id;
       if (categoryId == null) {
@@ -536,14 +567,16 @@ class NotesWorkspaceStore {
       if (!forceReload && todos.loadedTodoCategoryIds.contains(categoryId)) {
         continue;
       }
-      await todos.loadTodos(categoryId);
+      categoryIdsToLoad.add(categoryId);
     }
+    await Future.wait(categoryIdsToLoad.map(todos.loadTodos));
   }
 
   Future<bool> _reloadFilesPreservingExistingOnEmptyResult() async {
     final previousFiles = List<TodoFile>.from(todoFiles.todoFiles.value);
     await todoFiles.load();
 
+    if (todoFiles.error.value != null) return false;
     final nextFiles = todoFiles.todoFiles.value;
     final shouldPreservePreviousFiles = previousFiles.isNotEmpty && nextFiles.isEmpty;
     if (shouldPreservePreviousFiles) {
@@ -555,7 +588,18 @@ class NotesWorkspaceStore {
   }
 
   Future<void> _restoreWorkspaceState() async {
-    final savedWorkspaceState = await deviceWorkspaceState.getWorkspaceState();
+    final hasDeviceWorkspaceState = await deviceWorkspaceState.hasWorkspaceState();
+    final localWorkspaceState = await deviceWorkspaceState.getWorkspaceState();
+    final savedWorkspaceState = hasDeviceWorkspaceState
+        ? localWorkspaceState
+        : await cloudWorkspaceState?.getWorkspaceState() ?? localWorkspaceState;
+    if (!hasDeviceWorkspaceState && _hasWorkspaceStateContent(savedWorkspaceState)) {
+      await deviceWorkspaceState.saveWorkspaceState(
+        openFileIds: savedWorkspaceState.openFileIds,
+        selectedFileId: savedWorkspaceState.selectedFileId,
+        selectionsByFile: savedWorkspaceState.selectionsByFile,
+      );
+    }
     final allFiles = todoFiles.todoFiles.value;
     final savedOpenFileIds = savedWorkspaceState.openFileIds.toSet().toList();
     final restoredFileIds = query.normalizeFileIds(savedOpenFileIds, allFiles);
@@ -592,6 +636,12 @@ class NotesWorkspaceStore {
     }
     workspace.clearSelection();
     await _primePersistedWorkspaceSnapshot();
+  }
+
+  bool _hasWorkspaceStateContent(PersistedWorkspaceState state) {
+    return state.openFileIds.isNotEmpty ||
+        state.selectedFileId != null ||
+        state.selectionsByFile.isNotEmpty;
   }
 
   Future<void> _primePersistedWorkspaceSnapshot() async {

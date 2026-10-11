@@ -1,3 +1,6 @@
+import 'package:memory_notes/core/presentation/connection_banner.dart';
+import 'dart:async';
+
 import 'package:auto_route/auto_route.dart';
 import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
@@ -6,6 +9,7 @@ import 'package:memory_notes/core/theme/app_theme.dart';
 import 'package:memory_notes/features/notes/application/notes_workspace_store.dart';
 import 'package:memory_notes/features/notes/application/notes_mobile_store.dart';
 import 'package:memory_notes/features/notes/data/models.dart';
+import 'package:memory_notes/features/notes/data/repositories.dart';
 import 'package:memory_notes/features/notes/models/category_sort_order.dart';
 import 'package:memory_notes/features/notes/models/notes_sort_order.dart';
 import 'package:memory_notes/features/notes/models/todo_sort_order.dart';
@@ -55,13 +59,20 @@ enum _WorkspaceAction { openList, reloadAll, mergeDuplicates }
 
 class _NotesListScreenState extends State<NotesListScreen> {
   static const _desktopBreakpoint = 700.0;
-  static const _desktopSidebarWidth = 360.0;
+  static const _desktopSidebarMinWidth = 240.0;
+  static const _desktopSidebarMaxWidth = 640.0;
+  static const _desktopCategoryRailMinWidth = 220.0;
+  static const _desktopCategoryRailMaxWidth = 560.0;
+  static const _desktopTodoDrilldownMaxWidth = 800.0;
 
   final _desktopSidebarScrollController = ScrollController();
   final _desktopWorkspaceScrollController = ScrollController();
   final _mobileSearchController = TextEditingController();
   final _mobileSearchQuery = signal('');
   final _expandedTodoId = signal<int?>(null);
+  double _desktopSidebarWidth = DesktopWorkspaceLayout.defaultSidebarWidth;
+  double _desktopCategoryRailWidth = DesktopWorkspaceLayout.defaultCategoryRailWidth;
+  double _desktopTodoDrilldownWidth = DesktopWorkspaceLayout.defaultTodoDrilldownWidth;
   NotesSortOrder _sortOrder = NotesSortOrder.lastUpdated;
   CategorySortOrder _categorySortOrder = CategorySortOrder.newest;
   TodoSortOrder _todoSortOrder = TodoSortOrder.newest;
@@ -69,7 +80,6 @@ class _NotesListScreenState extends State<NotesListScreen> {
   int? _pendingDesktopRestoreFileId;
   bool _desktopRestoreScheduled = false;
   int? _lastDesktopSelectedFileId;
-  int? _lastDesktopSelectedTodoId;
   int _selectedTodoRevealRequestId = 0;
   int _todoNotesFocusRequestId = 0;
   int _todoListScrollToTopRequestId = 0;
@@ -126,9 +136,93 @@ class _NotesListScreenState extends State<NotesListScreen> {
   @override
   void initState() {
     super.initState();
+    unawaited(_loadDesktopWorkspaceLayout());
     _mobileSearchController.addListener(() {
       _mobileSearchQuery.value = _mobileSearchController.text.trim().toLowerCase();
     });
+  }
+
+  Future<void> _loadDesktopWorkspaceLayout() async {
+    final layout = await widget.notesWorkspace.deviceWorkspaceState.getDesktopWorkspaceLayout();
+    if (!mounted) return;
+    setState(() {
+      _desktopSidebarWidth = _clampDesktopPaneWidth(
+        layout.sidebarWidth,
+        _desktopSidebarMinWidth,
+        _desktopSidebarMaxWidth,
+      );
+      _desktopCategoryRailWidth = _clampDesktopPaneWidth(
+        layout.categoryRailWidth,
+        _desktopCategoryRailMinWidth,
+        _desktopCategoryRailMaxWidth,
+      );
+      _desktopTodoDrilldownWidth = _clampDesktopPaneWidth(
+        layout.todoDrilldownWidth,
+        desktopTodoDrilldownMinWidth,
+        _desktopTodoDrilldownMaxWidth,
+      );
+    });
+  }
+
+  static double _clampDesktopPaneWidth(double width, double minWidth, double maxWidth) {
+    return width.clamp(minWidth, maxWidth).toDouble();
+  }
+
+  void _resizeDesktopSidebar(double delta) {
+    setState(() {
+      _desktopSidebarWidth = _clampDesktopPaneWidth(
+        _desktopSidebarWidth + delta,
+        _desktopSidebarMinWidth,
+        _desktopSidebarMaxWidth,
+      );
+    });
+  }
+
+  void _resizeDesktopCategoryRail(double delta) {
+    setState(() {
+      _desktopCategoryRailWidth = _clampDesktopPaneWidth(
+        _desktopCategoryRailWidth + delta,
+        _desktopCategoryRailMinWidth,
+        _desktopCategoryRailMaxWidth,
+      );
+    });
+  }
+
+  void _resizeDesktopTodoDrilldown(double delta) {
+    setState(() {
+      _desktopTodoDrilldownWidth = _clampDesktopPaneWidth(
+        _desktopTodoDrilldownWidth + delta,
+        desktopTodoDrilldownMinWidth,
+        _desktopTodoDrilldownMaxWidth,
+      );
+    });
+  }
+
+  void _resetDesktopSidebarWidth() {
+    setState(() => _desktopSidebarWidth = DesktopWorkspaceLayout.defaultSidebarWidth);
+    _persistDesktopWorkspaceLayout();
+  }
+
+  void _resetDesktopCategoryRailWidth() {
+    setState(() => _desktopCategoryRailWidth = DesktopWorkspaceLayout.defaultCategoryRailWidth);
+    _persistDesktopWorkspaceLayout();
+  }
+
+  void _resetDesktopTodoDrilldownWidth() {
+    setState(() => _desktopTodoDrilldownWidth = DesktopWorkspaceLayout.defaultTodoDrilldownWidth);
+    _persistDesktopWorkspaceLayout();
+  }
+
+  void _persistDesktopWorkspaceLayout() {
+    unawaited(
+      widget.notesWorkspace.deviceWorkspaceState.saveDesktopWorkspaceLayout(
+        DesktopWorkspaceLayout(
+          sidebarWidth: _desktopSidebarWidth,
+          categoryRailWidth: _desktopCategoryRailWidth,
+          todoDrilldownWidth: _desktopTodoDrilldownWidth,
+        ),
+      ),
+    );
   }
 
   @override
@@ -154,24 +248,16 @@ class _NotesListScreenState extends State<NotesListScreen> {
     widget.notesWorkspace.selectTodo(fileId: fileId, categoryId: categoryId, todoPath: todoPath);
   }
 
-  void _scheduleDesktopTodoScroll() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_desktopWorkspaceScrollController.hasClients) return;
-      _desktopWorkspaceScrollController.animateTo(
-        _desktopWorkspaceScrollController.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 280),
-        curve: Curves.easeOutCubic,
-      );
-    });
-  }
-
   void _selectDesktopTodo({
     required int fileId,
     required int categoryId,
     required List<int> todoPath,
   }) {
     _selectTodo(fileId: fileId, categoryId: categoryId, todoPath: todoPath);
-    setState(() => _todoNotesFocusRequestId++);
+    setState(() {
+      _selectedTodoRevealRequestId++;
+      _todoNotesFocusRequestId++;
+    });
   }
 
   void _selectDesktopCategory({required TodoFile file, required Category category}) {
@@ -180,7 +266,11 @@ class _NotesListScreenState extends State<NotesListScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_desktopWorkspaceScrollController.hasClients) return;
       final position = _desktopWorkspaceScrollController.position;
-      final targetOffset = (_desktopSidebarWidth + desktopCategoryRailWidth).clamp(
+      final targetOffset = (_desktopSidebarWidth +
+              desktopPaneDividerWidth +
+              _desktopCategoryRailWidth +
+              desktopPaneDividerWidth)
+          .clamp(
         position.minScrollExtent,
         position.maxScrollExtent,
       );
@@ -192,11 +282,18 @@ class _NotesListScreenState extends State<NotesListScreen> {
     });
   }
 
-  Future<void> _toggleDesktopTodo(Todo todo) async {
-    final shouldScrollToTop = widget.notesWorkspace.workspace.selectedTodoId == todo.id;
-    await widget.notesWorkspace.toggleTodo(todo);
-    if (!mounted || !shouldScrollToTop) return;
-    setState(() => _todoListScrollToTopRequestId++);
+  Future<void> _toggleDesktopTodo(Todo todo) => widget.notesWorkspace.toggleTodo(todo);
+
+  Future<void> _deleteDesktopTodo(Todo todo, {required List<Todo> todos}) {
+    final siblings = widget.notesWorkspace.query.sortTodos(
+      todos.where((item) => item.parentTodoId == todo.parentTodoId),
+      sortOrder: _todoSortOrder,
+    );
+    final todoIndex = siblings.indexWhere((item) => item.id == todo.id);
+    final nextTodo = todoIndex == -1 || todoIndex + 1 == siblings.length
+        ? null
+        : siblings[todoIndex + 1];
+    return widget.notesWorkspace.deleteTodo(todo, nextTodo: nextTodo);
   }
 
   @override
@@ -264,6 +361,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
           searchController: _mobileSearchController,
           searchQuery: query,
           isLoading: controller.isLoading.value,
+          loadError: controller.error.value,
           fileItems: filterItems(workspaceView.openFileItems),
           onOpenWorkspaceMenu: () => _showWorkspaceMenu(context),
           onCreateList: () => _showCreateListDialog(context),
@@ -304,6 +402,20 @@ class _NotesListScreenState extends State<NotesListScreen> {
   }
 
   Widget _buildDesktopWorkspace(BuildContext context) {
+    if (widget.todoFiles.todoFiles.value.isEmpty && widget.todoFiles.error.value != null) {
+      return Scaffold(
+        backgroundColor: AppColors.background,
+        body: LoadErrorView(
+          error: widget.todoFiles.error.value!,
+          onRetry: () async {
+            widget.notesWorkspace.categories.resetLoadBackoff();
+            widget.todos.resetLoadBackoff();
+            await widget.notesWorkspace.initialize();
+            await widget.notesWorkspace.reloadAllFiles();
+          },
+        ),
+      );
+    }
     final viewState = widget.notesWorkspace.buildViewState(
       sortOrder: _sortOrder,
       categorySortOrder: _categorySortOrder,
@@ -329,14 +441,6 @@ class _NotesListScreenState extends State<NotesListScreen> {
       _lastDesktopSelectedFileId = selectedFile?.id;
       _scheduleDesktopScrollRestore(selectedFile?.id);
     }
-    if (viewState.selectedTodo?.id != _lastDesktopSelectedTodoId) {
-      _lastDesktopSelectedTodoId = viewState.selectedTodo?.id;
-      if (viewState.selectedTodo != null) {
-        _selectedTodoRevealRequestId++;
-        _scheduleDesktopTodoScroll();
-      }
-    }
-
     return Scaffold(
       backgroundColor: AppColors.background,
       body: Column(
@@ -352,16 +456,19 @@ class _NotesListScreenState extends State<NotesListScreen> {
           Expanded(
             child: LayoutBuilder(
               builder: (context, constraints) {
-                const sidebarWidth = _desktopSidebarWidth;
                 final minWorkspaceWidth =
-                    desktopCategoryRailWidth +
-                    desktopTodoDrilldownMinWidth +
+                    _desktopCategoryRailWidth +
+                    desktopPaneDividerWidth +
+                    _desktopTodoDrilldownWidth +
+                    desktopPaneDividerWidth +
                     desktopTodoNotesPaneMinWidth;
-                final minDesktopWidth = sidebarWidth + minWorkspaceWidth;
+                final minDesktopWidth =
+                    _desktopSidebarWidth + desktopPaneDividerWidth + minWorkspaceWidth;
                 final contentWidth = constraints.maxWidth < minDesktopWidth
                     ? minDesktopWidth
                     : constraints.maxWidth;
-                final workspaceWidth = contentWidth - sidebarWidth;
+                final workspaceWidth =
+                    contentWidth - _desktopSidebarWidth - desktopPaneDividerWidth;
 
                 return NotificationListener<ScrollEndNotification>(
                   onNotification: (notification) {
@@ -385,11 +492,10 @@ class _NotesListScreenState extends State<NotesListScreen> {
                         child: Row(
                           children: [
                             SizedBox(
-                              width: sidebarWidth,
+                              width: _desktopSidebarWidth,
                               child: DecoratedBox(
                                 decoration: const BoxDecoration(
                                   color: AppColors.navBackground,
-                                  border: Border(right: BorderSide(color: AppColors.divider)),
                                 ),
                                 child: Column(
                                   children: [
@@ -421,6 +527,12 @@ class _NotesListScreenState extends State<NotesListScreen> {
                                 ),
                               ),
                             ),
+                            DesktopPaneDivider(
+                              key: const ValueKey('desktop-sidebar-divider'),
+                              onResize: _resizeDesktopSidebar,
+                              onResizeEnd: _persistDesktopWorkspaceLayout,
+                              onReset: _resetDesktopSidebarWidth,
+                            ),
                             SizedBox(
                               width: workspaceWidth,
                               child: selectedFile == null
@@ -439,7 +551,11 @@ class _NotesListScreenState extends State<NotesListScreen> {
                                       todoNotesFocusRequestId: _todoNotesFocusRequestId,
                                       todoListScrollToTopRequestId: _todoListScrollToTopRequestId,
                                       expandedTodoId: _expandedTodoId,
+                                      categoryRailWidth: _desktopCategoryRailWidth,
+                                      todoDrilldownWidth: _desktopTodoDrilldownWidth,
                                       speech: widget.speech,
+                                      onCreateCategory: () =>
+                                          _showCreateCategoryDialog(context, selectedFile),
                                       onCreateTodo: selectedCategory == null
                                           ? null
                                           : () => _showCreateTodoDialog(
@@ -465,14 +581,22 @@ class _NotesListScreenState extends State<NotesListScreen> {
                                         todoPath: todoPath,
                                       ),
                                       onTodoDuplicate: (todo) =>
-                                          _showDuplicateTodoDialog(context, todo),
+                                          _showCopyTodoDialog(context, todo),
                                       onTodoRename: (todo) => _showRenameTodoDialog(context, todo),
-                                      onTodoDelete: (todo) =>
-                                          widget.notesWorkspace.deleteTodo(todo),
+                                      onTodoDelete: (todo) => _deleteDesktopTodo(
+                                        todo,
+                                        todos: viewState.todos,
+                                      ),
                                       onTodoToggle: _toggleDesktopTodo,
                                       onSaveTodoNotes: _saveTodoNotes,
                                       onCategorySortMenu: () => _showCategorySortMenu(context),
                                       onTodoSortMenu: () => _showTodoSortMenu(context),
+                                      onCategoryRailResize: _resizeDesktopCategoryRail,
+                                      onCategoryRailResizeEnd: _persistDesktopWorkspaceLayout,
+                                      onCategoryRailReset: _resetDesktopCategoryRailWidth,
+                                      onTodoDrilldownResize: _resizeDesktopTodoDrilldown,
+                                      onTodoDrilldownResizeEnd: _persistDesktopWorkspaceLayout,
+                                      onTodoDrilldownReset: _resetDesktopTodoDrilldownWidth,
                                       onCategoryActions: selectedCategory == null
                                           ? null
                                           : () => _showCategoryActions(
@@ -625,17 +749,42 @@ class _NotesListScreenState extends State<NotesListScreen> {
     await widget.notesListActions.renameTodo(todo, name);
   }
 
-  Future<void> _showDuplicateTodoDialog(BuildContext context, Todo todo) async {
-    final name = await showNotesTextPromptDialog(
+  Future<void> _showCopyTodoDialog(BuildContext context, Todo todo) async {
+    final destination = await showCopyNoteDestinationDialog(
       context,
-      title: 'Duplicate Task',
-      hintText: 'Task name',
-      confirmLabel: 'Duplicate',
-      initialValue: '${todo.name} (Copy)',
-      speech: widget.speech,
+      sourceTodo: todo,
+      files: widget.todoFiles.todoFiles.value
+          .where((file) => file.id != null)
+          .toList(growable: false),
+      loadCategories: (fileId) async {
+        widget.notesWorkspace.categories.resetLoadBackoff();
+        await widget.notesWorkspace.categories.loadCategories(fileId);
+        if (widget.notesWorkspace.categories.error.value != null) {
+          throw StateError(widget.notesWorkspace.categories.error.value!);
+        }
+        return widget.notesWorkspace.query.categoriesForFile(
+          widget.notesWorkspace.categories.categories.value,
+          fileId,
+        );
+      },
+      loadTodos: (categoryId) async {
+        widget.todos.resetLoadBackoff();
+        if (!await widget.todos.loadTodos(categoryId)) {
+          throw StateError(widget.todos.error.value ?? 'Could not load tasks.');
+        }
+        return widget.notesWorkspace.query.todosForCategory(
+          widget.todos.todosByCategory.value,
+          categoryId,
+        );
+      },
     );
-    if (name == null) return;
-    await widget.notesListActions.duplicateTodo(todo: todo, name: name);
+    if (destination == null) return;
+    await widget.notesListActions.copyTodo(
+      todo: todo,
+      targetFileId: destination.fileId,
+      targetCategoryId: destination.categoryId,
+      targetParentTodoId: destination.parentTodoId,
+    );
   }
 
   Future<void> _showOpenListDialog(BuildContext context) async {
@@ -644,6 +793,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
       context,
       title: 'Open List',
       emptyMessage: 'All lists are already open.',
+      searchHintText: 'Search lists...',
       items: closedItems
           .map(
             (item) => NotesSelectionDialogItem<TodoFile>(
@@ -870,7 +1020,8 @@ class _NotesListScreenState extends State<NotesListScreen> {
     final currentOffset = _desktopWorkspaceScrollController.offset;
     final rememberedOffset = widget.notesWorkspace.desktopScrollOffsetForFile(selectedFileId);
     final isTemporarySidebarReveal =
-        currentOffset <= _desktopSidebarWidth && rememberedOffset > _desktopSidebarWidth;
+        currentOffset <= _desktopSidebarWidth + desktopPaneDividerWidth &&
+        rememberedOffset > _desktopSidebarWidth + desktopPaneDividerWidth;
     if (isTemporarySidebarReveal) {
       return;
     }
